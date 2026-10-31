@@ -1,0 +1,14 @@
+{
+  "extends": "@codesync/config-typescript/nextjs.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"],
+      "@codesync/shared": ["../../packages/shared/src"],
+      "@codesync/shared/*": ["../../packages/shared/src/*"]
+    },
+    "noEmit": true
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules"]
+}

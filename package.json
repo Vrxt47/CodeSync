@@ -1,0 +1,31 @@
+{
+  "name": "codesync-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n \"web,api,collab\" -c \"blue,green,magenta\" \"pnpm --filter @codesync/web dev\" \"pnpm --filter @codesync/api dev\" \"pnpm --filter @codesync/collaboration dev\"",
+    "dev:web": "pnpm --filter @codesync/web dev",
+    "dev:api": "pnpm --filter @codesync/api dev",
+    "dev:collab": "pnpm --filter @codesync/collaboration dev",
+    "build": "pnpm --filter @codesync/shared build && pnpm --filter @codesync/api build && pnpm --filter @codesync/collaboration build && pnpm --filter @codesync/web build",
+    "lint": "eslint .",
+    "typecheck": "pnpm -r run typecheck",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",
+    "db:generate": "pnpm --filter @codesync/database db:generate",
+    "db:push": "pnpm --filter @codesync/database db:push",
+    "db:studio": "pnpm --filter @codesync/database db:studio",
+    "infra:up": "docker compose -f infrastructure/docker/docker-compose.yml up -d",
+    "infra:down": "docker compose -f infrastructure/docker/docker-compose.yml down",
+    "infra:logs": "docker compose -f infrastructure/docker/docker-compose.yml logs -f"
+  },
+  "devDependencies": {
+    "@codesync/config-eslint": "workspace:*",
+    "@codesync/config-prettier": "workspace:*",
+    "@codesync/config-typescript": "workspace:*",
+    "concurrently": "^9.1.2",
+    "eslint": "^9.20.0",
+    "prettier": "^3.5.1",
+    "typescript": "^5.7.3"
+  }
+}

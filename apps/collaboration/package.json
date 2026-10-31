@@ -1,0 +1,23 @@
+{
+  "name": "@codesync/collaboration",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@codesync/shared": "workspace:*",
+    "@hocuspocus/server": "^2.15.0",
+    "dotenv": "^16.4.7",
+    "yjs": "^13.6.23"
+  },
+  "devDependencies": {
+    "@codesync/config-typescript": "workspace:*",
+    "@types/node": "^22.10.7",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

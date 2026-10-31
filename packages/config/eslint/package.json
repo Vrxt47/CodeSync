@@ -1,0 +1,10 @@
+{
+  "name": "@codesync/config-eslint",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.mjs",
+  "type": "module",
+  "files": [
+    "index.mjs"
+  ]
+}

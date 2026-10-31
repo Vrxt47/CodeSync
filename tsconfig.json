@@ -1,0 +1,20 @@
+{
+  "extends": "./packages/config/typescript/base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@codesync/shared": ["./packages/shared/src"],
+      "@codesync/shared/*": ["./packages/shared/src/*"],
+      "@codesync/database": ["./packages/database/src"],
+      "@codesync/database/*": ["./packages/database/src/*"]
+    }
+  },
+  "include": [],
+  "references": [
+    { "path": "./packages/shared" },
+    { "path": "./packages/database" },
+    { "path": "./apps/api" },
+    { "path": "./apps/collaboration" },
+    { "path": "./apps/web" }
+  ]
+}

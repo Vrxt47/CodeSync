@@ -1,0 +1,10 @@
+{
+  "extends": "@codesync/config-typescript/node.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "declaration": false,
+    "declarationMap": false
+  },
+  "include": ["src/**/*"]
+}
