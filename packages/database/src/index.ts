@@ -1,13 +1,23 @@
+import fs from "node:fs";
 import path from "node:path";
 import dotenv from "dotenv";
 import { PrismaClient } from "@prisma/client";
 
 // Ensure root .env is loaded if DATABASE_URL is not yet defined in the environment
 if (!process.env.DATABASE_URL) {
-  dotenv.config({ path: path.resolve(__dirname, "../../.env") });
-  dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
-  dotenv.config({ path: path.resolve(process.cwd(), "../../.env") });
-  dotenv.config({ path: path.resolve(process.cwd(), ".env") });
+  const startDirs = [process.cwd(), __dirname];
+  for (const startDir of startDirs) {
+    let currentDir = startDir;
+    while (currentDir && currentDir !== path.parse(currentDir).root) {
+      const candidateEnv = path.join(currentDir, ".env");
+      if (fs.existsSync(candidateEnv)) {
+        dotenv.config({ path: candidateEnv });
+        if (process.env.DATABASE_URL) break;
+      }
+      currentDir = path.dirname(currentDir);
+    }
+    if (process.env.DATABASE_URL) break;
+  }
 }
 
 declare global {

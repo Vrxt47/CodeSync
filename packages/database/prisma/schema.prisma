@@ -7,14 +7,201 @@ generator client {
   provider = "prisma-client-js"
 }
 
-// Minimal baseline schema for CodeSync
+enum WorkspaceRole {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
+enum FileType {
+  FILE
+  FOLDER
+}
+
+enum ExecutionStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+  TIMEOUT
+  CANCELLED
+}
+
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  name      String?
-  avatarUrl String?  @map("avatar_url")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id           String            @id @default(uuid())
+  name         String
+  email        String            @unique
+  passwordHash String            @map("password_hash")
+  avatar       String?           @map("avatar")
+  createdAt    DateTime          @default(now()) @map("created_at")
+  updatedAt    DateTime          @updatedAt @map("updated_at")
+
+  workspaces   Workspace[]       @relation("WorkspaceOwner")
+  memberships  WorkspaceMember[]
+  messages     Message[]
+  executions   Execution[]
+  activityLogs ActivityLog[]
+  sessions     Session[]
 
   @@map("users")
+}
+
+model Session {
+  id               String    @id @default(uuid())
+  userId           String    @map("user_id")
+  tokenHash        String    @unique @map("token_hash")
+  familyId         String    @default(uuid()) @map("family_id")
+  expiresAt        DateTime  @map("expires_at")
+  revokedAt        DateTime? @map("revoked_at")
+  revocationReason String?   @map("revocation_reason")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@index([expiresAt])
+  @@index([familyId])
+  @@map("sessions")
+}
+
+model Workspace {
+  id           String            @id @default(uuid())
+  name         String
+  description  String?
+  ownerId      String            @map("owner_id")
+  createdAt    DateTime          @default(now()) @map("created_at")
+  updatedAt    DateTime          @updatedAt @map("updated_at")
+
+  owner        User              @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  members      WorkspaceMember[]
+  files        File[]
+  invitations  Invitation[]
+  messages     Message[]
+  executions   Execution[]
+  activityLogs ActivityLog[]
+
+  @@index([ownerId])
+  @@map("workspaces")
+}
+
+model WorkspaceMember {
+  id          String        @id @default(uuid())
+  workspaceId String        @map("workspace_id")
+  userId      String        @map("user_id")
+  role        WorkspaceRole
+
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, userId])
+  @@index([workspaceId])
+  @@index([userId])
+  @@map("workspace_members")
+}
+
+model File {
+  id          String             @id @default(uuid())
+  workspaceId String             @map("workspace_id")
+  parentId    String?            @map("parent_id")
+  name        String
+  type        FileType
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+
+  workspace   Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  parent      File?              @relation("FileHierarchy", fields: [workspaceId, parentId], references: [workspaceId, id], onDelete: Cascade)
+  children    File[]             @relation("FileHierarchy")
+  executions  Execution[]
+  snapshots   DocumentSnapshot[]
+
+  @@unique([workspaceId, id])
+  @@index([workspaceId])
+  @@index([parentId])
+  @@map("files")
+}
+
+model Invitation {
+  id          String        @id @default(uuid())
+  workspaceId String        @map("workspace_id")
+  tokenHash   String        @unique @map("token_hash")
+  role        WorkspaceRole
+  expiresAt   DateTime      @map("expires_at")
+  revokedAt   DateTime?     @map("revoked_at")
+
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@index([expiresAt])
+  @@map("invitations")
+}
+
+model Message {
+  id          String    @id @default(uuid())
+  workspaceId String    @map("workspace_id")
+  senderId    String    @map("sender_id")
+  content     String    @db.Text
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  sender      User      @relation(fields: [senderId], references: [id], onDelete: Restrict)
+
+  @@index([workspaceId])
+  @@index([senderId])
+  @@index([workspaceId, createdAt])
+  @@map("messages")
+}
+
+model Execution {
+  id            String          @id @default(uuid())
+  workspaceId   String          @map("workspace_id")
+  fileId        String          @map("file_id")
+  userId        String          @map("user_id")
+  language      String
+  status        ExecutionStatus @default(PENDING)
+  stdout        String?         @db.Text
+  stderr        String?         @db.Text
+  executionTime Int?            @map("execution_time")
+  createdAt     DateTime        @default(now()) @map("created_at")
+
+  workspace     Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  file          File            @relation(fields: [workspaceId, fileId], references: [workspaceId, id], onDelete: Restrict)
+  user          User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([workspaceId])
+  @@index([fileId])
+  @@index([userId])
+  @@index([workspaceId, createdAt])
+  @@map("executions")
+}
+
+model ActivityLog {
+  id          String    @id @default(uuid())
+  workspaceId String    @map("workspace_id")
+  userId      String?   @map("user_id")
+  action      String
+  metadata    Json?
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId])
+  @@index([userId])
+  @@index([workspaceId, createdAt])
+  @@map("activity_logs")
+}
+
+model DocumentSnapshot {
+  id               String   @id @default(uuid())
+  documentId       String   @map("document_id")
+  version          Int
+  storageReference String   @map("storage_reference")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  document         File     @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, version])
+  @@index([documentId])
+  @@map("document_snapshots")
 }

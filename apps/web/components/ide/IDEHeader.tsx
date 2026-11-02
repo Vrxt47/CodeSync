@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import Link from "next/link";
 import {
   Code2,
   ChevronDown,
@@ -10,8 +11,10 @@ import {
   PanelLeft,
   PanelBottom,
   CircleDot,
+  LogIn,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/providers/auth-provider";
 
 interface IDEHeaderProps {
   workspaceName?: string;
@@ -28,6 +31,16 @@ export const IDEHeader: React.FC<IDEHeaderProps> = ({
   isBottomPanelOpen,
   onToggleBottomPanel,
 }) => {
+  const { user, isAuthenticated } = useAuth();
+  const userInitials = user?.name
+    ? user.name
+        .split(" ")
+        .map((p) => p[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2)
+    : "CS";
+
   return (
     <header className="h-11 bg-[#181818] border-b border-[#303030] flex items-center justify-between px-3 text-[#CCCCCC] select-none z-30 shrink-0">
       {/* Left section: Logo, Brand, Workspace */}
@@ -136,13 +149,28 @@ export const IDEHeader: React.FC<IDEHeaderProps> = ({
           <Settings className="h-4 w-4" />
         </button>
 
-        {/* User Profile Avatar Placeholder */}
-        <div
-          title="Active User: Developer (Owner)"
-          className="h-7 w-7 rounded-full bg-gradient-to-br from-[#007ACC] to-[#005A9E] flex items-center justify-center text-white text-xs font-semibold cursor-pointer ring-1 ring-[#303030] shadow-sm ml-0.5"
-        >
-          CS
-        </div>
+        {/* User Profile Avatar / Sign In */}
+        {isAuthenticated && user ? (
+          <Link
+            href="/dashboard"
+            title={`Logged in as ${user.name} (${user.email}) - View Dashboard`}
+          >
+            <div className="h-7 w-7 rounded-full bg-gradient-to-br from-[#007ACC] to-[#005A9E] flex items-center justify-center text-white text-xs font-semibold cursor-pointer ring-1 ring-[#303030] shadow-sm ml-0.5 hover:ring-[#007ACC] transition-all">
+              {userInitials}
+            </div>
+          </Link>
+        ) : (
+          <Link href="/login">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2.5 text-xs font-medium border-[#303030] bg-[#252526] text-[#CCCCCC] hover:bg-[#2A2D2E] hover:text-white gap-1.5 ml-1"
+            >
+              <LogIn className="h-3.5 w-3.5 text-[#007ACC]" />
+              <span>Sign In</span>
+            </Button>
+          </Link>
+        )}
       </div>
     </header>
   );

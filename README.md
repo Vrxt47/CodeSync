@@ -244,25 +244,85 @@ docker compose -f infrastructure/docker/docker-compose.yml down
 
 ---
 
-## 9. Database Initialization Instructions
+## 9. Database Architecture & Setup Instructions
 
-Once PostgreSQL is running via Docker Compose:
+CodeSync uses **PostgreSQL 16** with **Prisma ORM** as the source of truth for persistence, relational integrity, and schema migrations.
 
-1. **Generate the Prisma Client:**
+### 9.1. Database Models Overview
+
+The database consists of nine core models with strict referential integrity:
+
+| Model                | Table                | Purpose                                                                          | Referential Rules                                                                                                                                      |
+| -------------------- | -------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **User**             | `users`              | Registered users with email normalization and hashed credentials.                | Owns workspaces (Restrict on delete).                                                                                                                  |
+| **Workspace**        | `workspaces`         | Shared collaborative programming environment.                                    | Cascades to members, files, invitations, messages, executions, activity logs.                                                                          |
+| **WorkspaceMember**  | `workspace_members`  | User membership in workspace with `WorkspaceRole` (`OWNER`, `EDITOR`, `VIEWER`). | Unique per `[workspaceId, userId]`. Cascades on workspace or user deletion.                                                                            |
+| **File**             | `files`              | Hierarchical files and folders (`FileType`: `FILE`, `FOLDER`).                   | Self-referencing composite FK prevents cross-workspace parenting. Partial unique indexes prevent duplicate names within folders and at workspace root. |
+| **Invitation**       | `invitations`        | Secure workspace invite links with hashed tokens and expiration dates.           | Unique `tokenHash`. Cascades on workspace deletion.                                                                                                    |
+| **Message**          | `messages`           | Workspace room chat messages with chronological retrieval index.                 | Sender foreign key (Restrict). Cascades on workspace deletion.                                                                                         |
+| **Execution**        | `executions`         | Code execution audit trail with status, timing, stdout, stderr.                  | Composite FK `[workspaceId, fileId]` ensures file-workspace consistency. Cascades on workspace deletion.                                               |
+| **ActivityLog**      | `activity_logs`      | Audit trail with JSONB metadata and nullable `userId` for system events.         | SetNull on user deletion. Cascades on workspace deletion.                                                                                              |
+| **DocumentSnapshot** | `document_snapshots` | Versioned document snapshots with `[documentId, version]` compound uniqueness.   | Cascades on referenced file deletion.                                                                                                                  |
+
+### 9.2. Entity-Relationship (ER) Diagram
+
+```mermaid
+erDiagram
+    User ||--o{ Workspace : "owns"
+    User ||--o{ WorkspaceMember : "belongs to"
+    User ||--o{ Message : "sends"
+    User ||--o{ Execution : "initiates"
+    User ||--o{ ActivityLog : "performs"
+
+    Workspace ||--o{ WorkspaceMember : "has members"
+    Workspace ||--o{ File : "contains files"
+    Workspace ||--o{ Invitation : "issues invites"
+    Workspace ||--o{ Message : "contains chat"
+    Workspace ||--o{ Execution : "records runs"
+    Workspace ||--o{ ActivityLog : "tracks events"
+
+    File ||--o{ File : "parent-child hierarchy"
+    File ||--o{ Execution : "executes"
+    File ||--o{ DocumentSnapshot : "snapshots"
+```
+
+### 9.3. Database Setup Commands
+
+Once PostgreSQL is running via Docker Compose (`pnpm infra:up`):
+
+1. **Apply Migrations to PostgreSQL:**
+
+   ```bash
+   pnpm db:migrate
+   # or for production deployments:
+   pnpm db:deploy
+   ```
+
+2. **Generate the Prisma Client:**
 
    ```bash
    pnpm db:generate
    ```
 
-2. **Push the schema to PostgreSQL:**
+3. **Seed the Database with Idempotent Development Data:**
 
    ```bash
-   pnpm db:push
+   pnpm db:seed
    ```
 
-3. **Open Prisma Studio (optional GUI):**
+   _Creates a test user (`developer@codesync.dev`), demo workspace, owner membership, and sample folder/file hierarchy._
+
+4. **Verify Database Integrity via Automated Tests:**
+
+   ```bash
+   pnpm test:db
+   ```
+
+5. **Open Prisma Studio (Interactive Web GUI):**
    ```bash
    pnpm db:studio
+   # or from root or packages/database:
+   pnpm studio
    ```
 
 ---
@@ -281,7 +341,24 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
-## 11. How to Start the Backend
+## 11. Backend Architecture & API
+
+The backend is built with Express.js, TypeScript, Prisma ORM, and Zod in `apps/api`. It follows a feature-modular architecture:
+
+- `src/config/`: Centralized Zod-validated environment config (`env.ts`), singleton Prisma connection manager (`database.ts`), and Redis client (`redis.ts`).
+- `src/middleware/`: Centralized error handler (`error.middleware.ts`), 404 handler (`not-found.middleware.ts`), reusable Zod validation middleware (`validate.middleware.ts`), and request logger (`requestLogger.ts`).
+- `src/modules/`: Feature-scoped domain types and Zod schemas:
+  - `users/`: Registration, login, profile validation, and safe public types.
+  - `workspaces/`: Workspace creation, updates, and member RBAC schemas.
+  - `files/`: Hierarchical file/folder creation, path separation validation.
+  - `invitations/`: Hashed token verification and future expiration checks.
+  - `messages/`: Chronological chat message schemas.
+  - `executions/`: Code execution input/result schemas.
+  - `activities/`: Workspace activity logging schemas.
+  - `snapshots/`: Document version snapshot schemas.
+- `src/utils/`: Custom operational error class (`AppError.ts`).
+- `src/app.ts`: Express application factory configuring Helmet, CORS, body parsers, routes, and error pipelines.
+- `src/server.ts`: Bootstrap process connecting to PostgreSQL with startup connectivity verification, HTTP server initialization, and graceful shutdown handlers (`SIGTERM`, `SIGINT`).
 
 To run only the Express REST API:
 
@@ -292,10 +369,26 @@ pnpm --filter @codesync/api dev
 ```
 
 The API starts at [http://localhost:4000](http://localhost:4000).  
-Verify with:
+Verify connectivity:
 
 ```bash
 curl http://localhost:4000/api/health
+```
+
+Expected response:
+
+```json
+{
+  "success": true,
+  "status": "success",
+  "message": "CodeSync API is healthy",
+  "data": {
+    "status": "healthy",
+    "database": "connected",
+    "timestamp": "2026-11-01T..."
+  },
+  "timestamp": "2026-11-01T..."
+}
 ```
 
 ---
@@ -330,38 +423,84 @@ This concurrently launches:
 
 ---
 
-## 14. Available Development Scripts
+## 14. Authentication System (Chunk 4)
 
-| Command             | Purpose                                                     |
-| ------------------- | ----------------------------------------------------------- |
-| `pnpm dev`          | Starts all applications (Web, API, Collab) concurrently     |
-| `pnpm dev:web`      | Starts Next.js frontend in development mode (:3000)         |
-| `pnpm dev:api`      | Starts Express API in watch mode (:4000)                    |
-| `pnpm dev:collab`   | Starts Hocuspocus server in watch mode (:1234)              |
-| `pnpm build`        | Builds shared packages, API, Collab, and Web for production |
-| `pnpm lint`         | Runs ESLint across all packages and apps                    |
-| `pnpm typecheck`    | Runs `tsc --noEmit` across all workspace packages           |
-| `pnpm format`       | Formats the codebase using Prettier                         |
-| `pnpm format:check` | Checks formatting compliance with Prettier                  |
-| `pnpm db:generate`  | Generates Prisma client types from `schema.prisma`          |
-| `pnpm db:push`      | Synchronizes database schema with PostgreSQL                |
-| `pnpm db:studio`    | Opens Prisma Studio web interface                           |
-| `pnpm infra:up`     | Boots PostgreSQL and Redis containers                       |
-| `pnpm infra:down`   | Shuts down PostgreSQL and Redis containers                  |
-| `pnpm infra:logs`   | Streams container output logs                               |
+CodeSync features a production-grade dual-token authentication system designed with maximum security guarantees:
+
+### Token Architecture
+
+- **Access Tokens**: Short-lived (15 minutes) signed JSON Web Tokens (`JWT_ACCESS_SECRET`). Stored **strictly in frontend client memory** (`apiClient.ts` / `AuthProvider`) and never stored in `localStorage` or `sessionStorage` to eliminate Cross-Site Scripting (XSS) token exfiltration.
+- **Refresh Tokens**: Long-lived (7 days) cryptographically random tokens (`crypto.randomBytes(40)`). Stored exclusively in secure, browser-managed `HttpOnly`, `SameSite=Lax`, `Path=/api/auth` cookies.
+- **Database Hashing**: Refresh tokens are stored in the PostgreSQL database using deterministic **SHA-256 hashes** (`tokenHash`) inside the `Session` model. Plaintext refresh tokens are never persisted.
+- **Atomic Refresh Token Rotation**: Refresh token claims are performed via PostgreSQL conditional updates (`revokedAt: null, expiresAt: { gt: now }`) and successor creation within a single Prisma transaction (`prisma.$transaction`). Exactly one request can claim a token, and failures roll back revocation cleanly.
+- **Session Family Tracking & Concurrency Grace Window**: Each login initiates an isolated session family (`familyId`). Successor sessions inherit the family lineage. Concurrent requests within the grace window (`REFRESH_TOKEN_GRACE_WINDOW_MS = 15s`) are rejected with `409 CONCURRENT_REFRESH` without invalidating the winning successor. Genuine replay attacks outside the grace window invalidate only the compromised session family, leaving independent sessions on other devices fully active.
+
+### API Endpoints
+
+| Method | Endpoint             | Access        | Description                                                 |
+| ------ | -------------------- | ------------- | ----------------------------------------------------------- |
+| `POST` | `/api/auth/register` | Public        | Validates input with Zod, hashes password, issues tokens    |
+| `POST` | `/api/auth/login`    | Public        | Authenticates email/password, issues tokens & cookie        |
+| `POST` | `/api/auth/refresh`  | Cookie Auth   | Rotates refresh token, detects reuse, issues new JWT        |
+| `POST` | `/api/auth/logout`   | Authenticated | Revokes session in PostgreSQL, clears HttpOnly cookie       |
+| `GET`  | `/api/auth/me`       | Bearer JWT    | Returns current authenticated user (excluding passwordHash) |
+
+### Frontend Authentication & Protected Routes
+
+- **`/register`**: Dedicated registration page with client-side validation, error handling, and auto-redirect.
+- **`/login`**: Sign-in page with dark IDE theme matching Visual Studio Code aesthetics.
+- **`/dashboard`**: Protected user dashboard displaying profile, session architecture details, and sign-out controls.
+- **`apiClient.ts`**: Transparent fetch wrapper attaching in-memory tokens, handling credentials, and intercepting 401s to perform queued, deduplicated token refreshes.
+- **`AuthProvider`**: React context provider restoring sessions on initial page load via silent cookie refresh.
 
 ---
 
-## 15. Validation Endpoints
+## 15. Available Development Scripts
 
-| Service  | Target                             | Expected Result                                                |
-| -------- | ---------------------------------- | -------------------------------------------------------------- |
-| Frontend | `http://localhost:3000`            | CodeSync dark-theme status page                                |
-| Backend  | `http://localhost:4000/api/health` | `{"status":"success","message":"CodeSync API is running",...}` |
-| Collab   | `ws://localhost:1234`              | Accepts WebSocket connections                                  |
+| Command                 | Purpose                                                       |
+| ----------------------- | ------------------------------------------------------------- |
+| `pnpm dev`              | Starts all applications (Web, API, Collab) concurrently       |
+| `pnpm dev:web`          | Starts Next.js frontend in development mode (:3000)           |
+| `pnpm dev:api`          | Starts Express API in watch mode (:4000)                      |
+| `pnpm dev:collab`       | Starts Hocuspocus server in watch mode (:1234)                |
+| `pnpm build`            | Builds shared packages, API, Collab, and Web for production   |
+| `pnpm lint`             | Runs ESLint across all packages and apps                      |
+| `pnpm typecheck`        | Runs `tsc --noEmit` across all workspace packages             |
+| `pnpm format`           | Formats the codebase using Prettier                           |
+| `pnpm format:check`     | Checks formatting compliance with Prettier                    |
+| `pnpm test`             | Runs database integrity, backend, auth, and concurrency tests |
+| `pnpm test:db`          | Executes comprehensive 9-model database integrity tests       |
+| `pnpm test:backend`     | Executes Express API, health, error, and validation tests     |
+| `pnpm test:auth`        | Executes Chunk 4 authentication and session security tests    |
+| `pnpm test:concurrency` | Executes atomic rotation, concurrency & rollback tests        |
+| `pnpm studio`           | Opens Prisma Studio web interface (root or database package)  |
+| `pnpm prisma <cmd>`     | Runs any Prisma CLI command with root `.env` loaded           |
+| `pnpm db:generate`      | Generates Prisma client types from `schema.prisma`            |
+| `pnpm db:migrate`       | Runs Prisma migrations in development                         |
+| `pnpm db:deploy`        | Applies pending Prisma migrations in production               |
+| `pnpm db:seed`          | Seeds database with test user, workspace, and files           |
+| `pnpm db:push`          | Synchronizes database schema with PostgreSQL                  |
+| `pnpm db:studio`        | Opens Prisma Studio web interface                             |
+| `pnpm infra:up`         | Boots PostgreSQL and Redis containers                         |
+| `pnpm infra:down`       | Shuts down PostgreSQL and Redis containers                    |
+| `pnpm infra:logs`       | Streams container output logs                                 |
 
 ---
 
-## 16. Development Guidelines
+## 16. Validation Endpoints
+
+| Service  | Target                              | Expected Result                                                |
+| -------- | ----------------------------------- | -------------------------------------------------------------- |
+| Frontend | `http://localhost:3000`             | CodeSync IDE interface                                         |
+| Frontend | `http://localhost:3000/register`    | Dedicated user registration page                               |
+| Frontend | `http://localhost:3000/login`       | User authentication page                                       |
+| Frontend | `http://localhost:3000/dashboard`   | Protected user profile and session dashboard                   |
+| Backend  | `http://localhost:4000/api/health`  | `{"status":"success","message":"CodeSync API is running",...}` |
+| Backend  | `http://localhost:4000/api/auth/me` | Current authenticated user payload (Bearer token required)     |
+| Collab   | `ws://localhost:1234`               | Accepts WebSocket connections                                  |
+
+---
+
+## 17. Development Guidelines
 
 All developers and AI agents must adhere to the permanent architectural rules defined in [AGENTS.md](AGENTS.md).

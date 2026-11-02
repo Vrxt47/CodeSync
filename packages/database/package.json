@@ -12,21 +12,31 @@
     }
   },
   "scripts": {
-    "db:generate": "dotenv -e ../../.env -- prisma generate",
-    "db:push": "dotenv -e ../../.env -- prisma db push",
-    "db:migrate": "dotenv -e ../../.env -- prisma migrate dev",
-    "db:studio": "dotenv -e ../../.env -- prisma studio",
+    "prisma": "dotenv -e ../../.env -e .env -- prisma",
+    "studio": "dotenv -e ../../.env -e .env -- prisma studio",
+    "db:generate": "dotenv -e ../../.env -e .env -- prisma generate",
+    "db:push": "dotenv -e ../../.env -e .env -- prisma db push",
+    "db:migrate": "dotenv -e ../../.env -e .env -- prisma migrate dev",
+    "db:deploy": "dotenv -e ../../.env -e .env -- prisma migrate deploy",
+    "db:seed": "dotenv -e ../../.env -e .env -- tsx prisma/seed.ts",
+    "db:studio": "dotenv -e ../../.env -e .env -- prisma studio",
     "typecheck": "tsc --noEmit"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
+    "bcryptjs": "^3.0.3",
     "dotenv": "^16.4.7"
   },
   "devDependencies": {
     "@codesync/config-typescript": "workspace:*",
+    "@types/bcryptjs": "^3.0.0",
     "@types/node": "^22.10.7",
     "dotenv-cli": "^8.0.0",
     "prisma": "^5.22.0",
+    "tsx": "^4.23.15",
     "typescript": "^5.7.3"
   }
 }
