@@ -9,10 +9,7 @@ interface StatusBarProps {
   activeTab: EditorTab | null;
 }
 
-export const StatusBar: React.FC<StatusBarProps> = ({
-  workspaceName = "my-workspace",
-  activeTab,
-}) => {
+export const StatusBar: React.FC<StatusBarProps> = ({ workspaceName = "workspace", activeTab }) => {
   const language = activeTab?.language || "Plain Text";
 
   return (

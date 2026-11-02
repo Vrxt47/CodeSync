@@ -495,36 +495,65 @@ CodeSync provides a robust, collaborative workspace management architecture with
 
 ---
 
-## 16. Available Development Scripts
+## 16. Workspace File Explorer & Virtual Filesystem (Chunk 6)
 
-| Command                 | Purpose                                                                  |
-| ----------------------- | ------------------------------------------------------------------------ |
-| `pnpm dev`              | Starts all applications (Web, API, Collab) concurrently                  |
-| `pnpm dev:web`          | Starts Next.js frontend in development mode (:3000)                      |
-| `pnpm dev:api`          | Starts Express API in watch mode (:4000)                                 |
-| `pnpm dev:collab`       | Starts Hocuspocus server in watch mode (:1234)                           |
-| `pnpm build`            | Builds shared packages, API, Collab, and Web for production              |
-| `pnpm lint`             | Runs ESLint across all packages and apps                                 |
-| `pnpm typecheck`        | Runs `tsc --noEmit` across all workspace packages                        |
-| `pnpm format`           | Formats the codebase using Prettier                                      |
-| `pnpm format:check`     | Checks formatting compliance with Prettier                               |
-| `pnpm test`             | Runs database integrity, backend, auth, concurrency, and workspace tests |
-| `pnpm test:db`          | Executes comprehensive 9-model database integrity tests                  |
-| `pnpm test:backend`     | Executes Express API, health, error, and validation tests                |
-| `pnpm test:auth`        | Executes Chunk 4 authentication and session security tests               |
-| `pnpm test:concurrency` | Executes atomic rotation, concurrency & rollback tests                   |
-| `pnpm test:workspaces`  | Executes Chunk 5 workspace creation, isolation, & RBAC tests             |
-| `pnpm studio`           | Opens Prisma Studio web interface (root or database package)             |
-| `pnpm prisma <cmd>`     | Runs any Prisma CLI command with root `.env` loaded                      |
-| `pnpm db:generate`      | Generates Prisma client types from `schema.prisma`                       |
-| `pnpm db:migrate`       | Runs Prisma migrations in development                                    |
-| `pnpm db:deploy`        | Applies pending Prisma migrations in production                          |
-| `pnpm db:seed`          | Seeds database with test user, workspace, and files                      |
-| `pnpm db:push`          | Synchronizes database schema with PostgreSQL                             |
-| `pnpm db:studio`        | Opens Prisma Studio web interface                                        |
-| `pnpm infra:up`         | Boots PostgreSQL and Redis containers                                    |
-| `pnpm infra:down`       | Shuts down PostgreSQL and Redis containers                               |
-| `pnpm infra:logs`       | Streams container output logs                                            |
+CodeSync features a database-backed, workspace-scoped virtual filesystem supporting complete file and folder CRUD, nested directory trees, move operations, and role-based access control without touching host filesystem disks:
+
+### Core Architecture & Capabilities
+
+- **Database-Backed Virtual Filesystem**: All files and folders are persisted in PostgreSQL via the `File` model, distinguished by `type` (`FILE` or `FOLDER`).
+- **Hierarchical Self-Referencing Tree**: Folders contain files and child folders using a composite foreign key `[workspaceId, parentId]` referencing `[workspaceId, id]` with `ON DELETE CASCADE`. Root-level items have `parentId = null`.
+- **Case-Insensitive Sibling Uniqueness**: PostgreSQL partial functional unique indexes (`lower(name)`) guarantee that duplicate sibling names cannot be created at the workspace root or inside any folder, regardless of casing.
+- **Recursive Deletion**: Deleting a folder atomically cascades in PostgreSQL to all nested descendants, preventing orphaned records while leaving unrelated sibling items intact.
+- **Move & Circular Nesting Prevention**: Moving folders employs an ancestor traversal algorithm ensuring a folder can never be moved into itself or into any of its own descendants.
+- **Identity Preservation**: Renaming and moving operations preserve the original UUIDs, content, and descendant relationships.
+- **Cross-Workspace Isolation & RBAC**: Every file and folder operation resolves workspace ownership from the database and enforces that the user holds an active membership with write permissions (`OWNER` or `EDITOR`). `VIEWER` roles are restricted to read-only access.
+- **Frontend Explorer UI**: Real-time VS Code-style sidebar explorer with custom icons for all major languages, open/closed folder states, inline creation inputs, right-click context menus, drag-and-drop movement, delete confirmation modals, and empty states.
+
+### Virtual Filesystem API Endpoints
+
+| Method   | Endpoint                               | Access Role    | Description                                                                    |
+| -------- | -------------------------------------- | -------------- | ------------------------------------------------------------------------------ |
+| `GET`    | `/api/workspaces/:workspaceId/files`   | Member         | Retrieves the complete hierarchical directory tree (folders first, sorted A-Z) |
+| `POST`   | `/api/workspaces/:workspaceId/files`   | Editor / Owner | Creates a new file with initial empty content in the specified parent folder   |
+| `POST`   | `/api/workspaces/:workspaceId/folders` | Editor / Owner | Creates a new directory folder in the specified parent folder                  |
+| `PATCH`  | `/api/files/:fileId`                   | Editor / Owner | Renames a file or folder; validates uniqueness and preserves identity          |
+| `DELETE` | `/api/files/:fileId`                   | Editor / Owner | Deletes a file or recursively deletes a folder and all descendants             |
+| `POST`   | `/api/files/:fileId/move`              | Editor / Owner | Moves a file or folder; validates parent, sibling names, and circular nesting  |
+
+---
+
+## 17. Available Development Scripts
+
+| Command                 | Purpose                                                                         |
+| ----------------------- | ------------------------------------------------------------------------------- |
+| `pnpm dev`              | Starts all applications (Web, API, Collab) concurrently                         |
+| `pnpm dev:web`          | Starts Next.js frontend in development mode (:3000)                             |
+| `pnpm dev:api`          | Starts Express API in watch mode (:4000)                                        |
+| `pnpm dev:collab`       | Starts Hocuspocus server in watch mode (:1234)                                  |
+| `pnpm build`            | Builds shared packages, API, Collab, and Web for production                     |
+| `pnpm lint`             | Runs ESLint across all packages and apps                                        |
+| `pnpm typecheck`        | Runs `tsc --noEmit` across all workspace packages                               |
+| `pnpm format`           | Formats the codebase using Prettier                                             |
+| `pnpm format:check`     | Checks formatting compliance with Prettier                                      |
+| `pnpm test`             | Runs database integrity, backend, auth, concurrency, workspaces, and file tests |
+| `pnpm test:db`          | Executes comprehensive 9-model database integrity tests                         |
+| `pnpm test:backend`     | Executes Express API, health, error, and validation tests                       |
+| `pnpm test:auth`        | Executes Chunk 4 authentication and session security tests                      |
+| `pnpm test:concurrency` | Executes atomic rotation, concurrency & rollback tests                          |
+| `pnpm test:workspaces`  | Executes Chunk 5 workspace creation, isolation, & RBAC tests                    |
+| `pnpm test:files`       | Executes Chunk 6 virtual filesystem CRUD, recursion, & security tests           |
+| `pnpm studio`           | Opens Prisma Studio web interface (root or database package)                    |
+| `pnpm prisma <cmd>`     | Runs any Prisma CLI command with root `.env` loaded                             |
+| `pnpm db:generate`      | Generates Prisma client types from `schema.prisma`                              |
+| `pnpm db:migrate`       | Runs Prisma migrations in development                                           |
+| `pnpm db:deploy`        | Applies pending Prisma migrations in production                                 |
+| `pnpm db:seed`          | Seeds database with test user, workspace, and files                             |
+| `pnpm db:push`          | Synchronizes database schema with PostgreSQL                                    |
+| `pnpm db:studio`        | Opens Prisma Studio web interface                                               |
+| `pnpm infra:up`         | Boots PostgreSQL and Redis containers                                           |
+| `pnpm infra:down`       | Shuts down PostgreSQL and Redis containers                                      |
+| `pnpm infra:logs`       | Streams container output logs                                                   |
 
 ---
 

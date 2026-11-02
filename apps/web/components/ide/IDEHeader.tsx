@@ -25,7 +25,7 @@ interface IDEHeaderProps {
 }
 
 export const IDEHeader: React.FC<IDEHeaderProps> = ({
-  workspaceName = "MY-WORKSPACE",
+  workspaceName = "Workspace",
   isSidebarOpen,
   onToggleSidebar,
   isBottomPanelOpen,

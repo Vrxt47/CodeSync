@@ -1,4 +1,4 @@
-export type FileType = "file" | "folder";
+export type FileType = "file" | "folder" | "FILE" | "FOLDER";
 
 export interface FileNode {
   id: string;
@@ -6,6 +6,8 @@ export interface FileNode {
   type: FileType;
   path: string;
   extension?: string;
+  parentId?: string | null;
+  workspaceId?: string;
   children?: FileNode[];
   content?: string;
   language?: string;

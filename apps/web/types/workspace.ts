@@ -36,4 +36,3 @@ export interface WorkspaceApiResponse<T = unknown> {
   code?: string;
   errors?: Array<{ field: string; message: string }>;
 }
-

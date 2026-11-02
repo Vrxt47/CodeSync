@@ -201,4 +201,3 @@ export const WorkspaceCard: React.FC<WorkspaceCardProps> = ({
     </div>
   );
 };
-

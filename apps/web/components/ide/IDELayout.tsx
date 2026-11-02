@@ -8,19 +8,24 @@ import { Sidebar } from "./Sidebar";
 import { EditorWorkspace } from "./EditorWorkspace";
 import { BottomPanel } from "./BottomPanel";
 import { StatusBar } from "./StatusBar";
-import { MOCK_WORKSPACE_NAME } from "@/data/mockWorkspace";
 
 export interface IDELayoutProps {
   workspaceName?: string;
+  workspaceId?: string;
 }
 
-export const IDELayout: React.FC<IDELayoutProps> = ({ workspaceName = MOCK_WORKSPACE_NAME }) => {
+export const IDELayout: React.FC<IDELayoutProps> = ({
+  workspaceName = "Workspace",
+  workspaceId,
+}) => {
   const {
     activeActivity,
     setActiveActivity,
     isSidebarOpen,
     toggleSidebar,
     fileTree,
+    isLoadingTree,
+    treeError,
     expandedFolders,
     toggleFolder,
     expandAllFolders,
@@ -40,8 +45,11 @@ export const IDELayout: React.FC<IDELayoutProps> = ({ workspaceName = MOCK_WORKS
     toggleBottomPanelMaximized,
     createFile,
     createFolder,
+    renameItem,
+    deleteItem,
+    moveItem,
     refreshFileTree,
-  } = useIDEState();
+  } = useIDEState({ workspaceId });
 
   // Keyboard shortcut listener (Ctrl+B / Ctrl+`)
   useEffect(() => {
@@ -87,8 +95,10 @@ export const IDELayout: React.FC<IDELayoutProps> = ({ workspaceName = MOCK_WORKS
         <Sidebar
           activeActivity={activeActivity}
           isOpen={isSidebarOpen}
-          workspaceName={MOCK_WORKSPACE_NAME}
+          workspaceName={workspaceName}
           fileTree={fileTree}
+          isLoadingTree={isLoadingTree}
+          treeError={treeError}
           expandedFolders={expandedFolders}
           selectedFileId={selectedFileId}
           onToggleFolder={toggleFolder}
@@ -97,12 +107,16 @@ export const IDELayout: React.FC<IDELayoutProps> = ({ workspaceName = MOCK_WORKS
           onRefresh={refreshFileTree}
           onCreateFile={createFile}
           onCreateFolder={createFolder}
+          onRenameItem={renameItem}
+          onDeleteItem={deleteItem}
+          onMoveItem={moveItem}
         />
 
         {/* Central Workspace: Editor + Bottom Panel */}
         <div className="flex-1 flex flex-col overflow-hidden min-w-0 bg-[#1E1E1E]">
           {/* Main Editor Canvas / Welcome Screen */}
           <EditorWorkspace
+            workspaceName={workspaceName}
             tabs={openTabs}
             activeTabId={activeTabId}
             activeTab={activeTab}
@@ -112,6 +126,7 @@ export const IDELayout: React.FC<IDELayoutProps> = ({ workspaceName = MOCK_WORKS
 
           {/* Bottom Output / Terminal / Problems Panel */}
           <BottomPanel
+            workspaceName={workspaceName}
             isOpen={isBottomPanelOpen}
             isMaximized={isBottomPanelMaximized}
             activeTab={bottomPanelTab}
@@ -123,7 +138,7 @@ export const IDELayout: React.FC<IDELayoutProps> = ({ workspaceName = MOCK_WORKS
       </div>
 
       {/* 3. Bottom Status Bar */}
-      <StatusBar workspaceName="my-workspace" activeTab={activeTab} />
+      <StatusBar workspaceName={workspaceName} activeTab={activeTab} />
     </div>
   );
 };

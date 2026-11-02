@@ -16,21 +16,28 @@ interface SidebarProps {
   isOpen: boolean;
   workspaceName?: string;
   fileTree: FileNode[];
+  isLoadingTree?: boolean;
+  treeError?: string | null;
   expandedFolders: string[];
   selectedFileId: string | null;
   onToggleFolder: (folderId: string) => void;
   onSelectFile: (file: FileNode) => void;
   onCollapseAll: () => void;
   onRefresh: () => void;
-  onCreateFile: (name: string, parentFolderId?: string) => void;
-  onCreateFolder: (name: string, parentFolderId?: string) => void;
+  onCreateFile: (name: string, parentFolderId?: string) => Promise<void> | void;
+  onCreateFolder: (name: string, parentFolderId?: string) => Promise<void> | void;
+  onRenameItem?: (fileId: string, newName: string) => Promise<void> | void;
+  onDeleteItem?: (fileId: string) => Promise<void> | void;
+  onMoveItem?: (fileId: string, targetParentId: string | null) => Promise<void> | void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
   activeActivity,
   isOpen,
-  workspaceName = "MY-WORKSPACE",
+  workspaceName = "Workspace",
   fileTree,
+  isLoadingTree,
+  treeError,
   expandedFolders,
   selectedFileId,
   onToggleFolder,
@@ -39,6 +46,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onRefresh,
   onCreateFile,
   onCreateFolder,
+  onRenameItem,
+  onDeleteItem,
+  onMoveItem,
 }) => {
   if (!isOpen) {
     return null;
@@ -50,6 +60,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <FileExplorer
           workspaceName={workspaceName}
           fileTree={fileTree}
+          isLoadingTree={isLoadingTree}
+          treeError={treeError}
           expandedFolders={expandedFolders}
           selectedFileId={selectedFileId}
           onToggleFolder={onToggleFolder}
@@ -58,6 +70,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           onRefresh={onRefresh}
           onCreateFile={onCreateFile}
           onCreateFolder={onCreateFolder}
+          onRenameItem={onRenameItem}
+          onDeleteItem={onDeleteItem}
+          onMoveItem={onMoveItem}
         />
       )}
 

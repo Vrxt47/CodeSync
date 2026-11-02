@@ -23,7 +23,7 @@ export default function WorkspacePage() {
 
   useEffect(() => {
     if (!isAuthLoading && !isAuthenticated) {
-      router.push(`/login?redirect=/workspace/${workspaceId}`);
+      router.replace(`/login?redirect=/workspace/${workspaceId}`);
     }
   }, [isAuthLoading, isAuthenticated, router, workspaceId]);
 
@@ -102,6 +102,5 @@ export default function WorkspacePage() {
     );
   }
 
-  return <IDELayout workspaceName={workspace.name} />;
+  return <IDELayout workspaceId={workspace.id} workspaceName={workspace.name} />;
 }
-

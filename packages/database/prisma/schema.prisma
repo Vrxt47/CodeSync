@@ -109,6 +109,7 @@ model File {
   parentId    String?            @map("parent_id")
   name        String
   type        FileType
+  content     String             @default("") @db.Text @map("content")
   createdAt   DateTime           @default(now()) @map("created_at")
   updatedAt   DateTime           @updatedAt @map("updated_at")
 

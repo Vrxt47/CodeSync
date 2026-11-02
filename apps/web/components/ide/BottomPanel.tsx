@@ -13,6 +13,7 @@ import {
 import { BottomPanelTab } from "@/types/ide";
 
 interface BottomPanelProps {
+  workspaceName?: string;
   isOpen: boolean;
   isMaximized: boolean;
   activeTab: BottomPanelTab;
@@ -22,6 +23,7 @@ interface BottomPanelProps {
 }
 
 export const BottomPanel: React.FC<BottomPanelProps> = ({
+  workspaceName,
   isOpen,
   isMaximized,
   activeTab,
@@ -30,21 +32,11 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
   onToggleMaximized,
 }) => {
   const [terminalInput, setTerminalInput] = useState<string>("");
-  const [terminalHistory, setTerminalHistory] = useState<string[]>([
-    "g++ -std=c++17 src/main.cpp -o main && ./main",
-    "=========================================",
-    "   CodeSync Cloud IDE — Runtime v0.2.0   ",
-    "=========================================",
-    "Component                Status    Port",
-    "-----------------------------------------",
-    "Next.js Web Frontend     Online    :3000",
-    "Express REST API         Online    :4000",
-    "Hocuspocus CRDT Server   Online    :1234",
-    "PostgreSQL Database      Ready     :5432",
-    "Redis Task Broker        Ready     :6379",
-    "-----------------------------------------",
-    "Status: All services operational.",
-  ]);
+  const [terminalHistory, setTerminalHistory] = useState<string[]>([]);
+
+  const promptPrefix = `codesync@${(workspaceName || "workspace")
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "-")}:~$`;
 
   if (!isOpen) {
     return null;
@@ -56,7 +48,7 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
 
     setTerminalHistory((prev) => [
       ...prev,
-      `codesync@workspace:~/my-workspace$ ${terminalInput}`,
+      `${promptPrefix} ${terminalInput}`,
       `[Judge0 CE Sandbox] Execution queued. (Integration active in subsequent chunk)`,
     ]);
     setTerminalInput("");
@@ -138,18 +130,9 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
         {activeTab === "output" && (
           <div className="space-y-1 text-[#CCCCCC] leading-relaxed">
             <div className="text-[#858585]">
-              [CodeSync Build System] Workspace initialized: MY-WORKSPACE
+              [CodeSync Build System] Ready. Execution output will appear here.
             </div>
-            <div className="text-[#858585]">
-              [Hocuspocus Server] CRDT document sync engine ready at :1234
-            </div>
-            <div className="text-[#858585]">
-              [Next.js App Router] Development server operational on port 3000
-            </div>
-            <div className="text-emerald-400">
-              [Language Server] C++, TypeScript, Python runtimes connected.
-            </div>
-            <div className="pt-2 text-[#858585] italic">Program output will appear here.</div>
+            <div className="text-[#858585]">[Language Server] Connected.</div>
           </div>
         )}
 
@@ -162,6 +145,11 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
 
             {/* History output */}
             <div className="space-y-0.5 mb-2">
+              {terminalHistory.length === 0 && (
+                <div className="text-[#858585] italic mb-2 select-none text-[11px]">
+                  Terminal ready. Enter commands or run code to see output.
+                </div>
+              )}
               {terminalHistory.map((line, idx) => (
                 <div
                   key={idx}
@@ -182,9 +170,7 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
 
             {/* Interactive Prompt line */}
             <form onSubmit={handleTerminalSubmit} className="flex items-center gap-1 mt-auto pt-1">
-              <span className="text-[#007ACC] font-semibold shrink-0">
-                codesync@workspace:~/my-workspace$
-              </span>
+              <span className="text-[#007ACC] font-semibold shrink-0">{promptPrefix}</span>
               <input
                 type="text"
                 value={terminalInput}

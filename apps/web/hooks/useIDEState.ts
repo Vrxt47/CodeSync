@@ -1,52 +1,134 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { ActivityBarItem, BottomPanelTab, EditorTab, FileNode } from "@/types/ide";
-import { MOCK_FILE_TREE, findFileById, getAllFolderIds } from "@/data/mockWorkspace";
+import { useState, useCallback, useEffect, useRef } from "react";
+import type { ActivityBarItem, BottomPanelTab, EditorTab, FileNode } from "@/types/ide";
+import type { FileTreeNode } from "@/types/filesystem";
+import { fileApi } from "@/lib/fileApi";
+import { getExtensionFromName, getLanguageFromExtension } from "@/lib/languageUtils";
 
-const DEFAULT_INITIAL_TABS: EditorTab[] = [
-  {
-    id: "file-main-cpp",
-    name: "main.cpp",
-    path: "src/main.cpp",
-    extension: "cpp",
-    language: "C++",
-    content: findFileById(MOCK_FILE_TREE, "file-main-cpp")?.content || "",
-  },
-  {
-    id: "file-helper-ts",
-    name: "helper.ts",
-    path: "src/utils/helper.ts",
-    extension: "ts",
-    language: "TypeScript",
-    content: findFileById(MOCK_FILE_TREE, "file-helper-ts")?.content || "",
-  },
-  {
-    id: "file-readme-md",
-    name: "README.md",
-    path: "README.md",
-    extension: "md",
-    language: "Markdown",
-    content: findFileById(MOCK_FILE_TREE, "file-readme-md")?.content || "",
-  },
-];
+export interface UseIDEStateOptions {
+  workspaceId?: string;
+}
 
-export function useIDEState() {
+function convertTreeNodeToFileNode(node: FileTreeNode, parentPath = ""): FileNode {
+  const currentPath = parentPath ? `${parentPath}/${node.name}` : node.name;
+  const isFolder = node.type === "FOLDER";
+  const ext = !isFolder ? getExtensionFromName(node.name) : undefined;
+  const lang = !isFolder ? getLanguageFromExtension(ext) : undefined;
+
+  return {
+    id: node.id,
+    name: node.name,
+    type: isFolder ? "folder" : "file",
+    path: currentPath,
+    parentId: node.parentId,
+    workspaceId: node.workspaceId,
+    extension: ext,
+    language: lang,
+    children: node.children
+      ? node.children.map((child) => convertTreeNodeToFileNode(child, currentPath))
+      : undefined,
+  };
+}
+
+function getAllFolderIdsFromTree(nodes: FileNode[]): string[] {
+  let ids: string[] = [];
+  for (const node of nodes) {
+    if (node.type === "folder" || (node.type as string) === "FOLDER") {
+      ids.push(node.id);
+      if (node.children) {
+        ids = ids.concat(getAllFolderIdsFromTree(node.children));
+      }
+    }
+  }
+  return ids;
+}
+
+function findNodeById(nodes: FileNode[], id: string): FileNode | null {
+  for (const node of nodes) {
+    if (node.id === id) return node;
+    if (node.children) {
+      const found = findNodeById(node.children, id);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function collectSubtreeIds(node: FileNode): string[] {
+  let ids = [node.id];
+  if (node.children) {
+    for (const child of node.children) {
+      ids = ids.concat(collectSubtreeIds(child));
+    }
+  }
+  return ids;
+}
+
+export function useIDEState(options?: UseIDEStateOptions) {
+  const workspaceId = options?.workspaceId;
+
   const [activeActivity, setActiveActivityState] = useState<ActivityBarItem>("explorer");
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(true);
-  const [fileTree, setFileTree] = useState<FileNode[]>(MOCK_FILE_TREE);
-  const [expandedFolders, setExpandedFolders] = useState<string[]>([
-    "folder-src",
-    "folder-components",
-    "folder-utils",
-    "folder-public",
-  ]);
-  const [selectedFileId, setSelectedFileId] = useState<string | null>("file-main-cpp");
-  const [openTabs, setOpenTabs] = useState<EditorTab[]>(DEFAULT_INITIAL_TABS);
-  const [activeTabId, setActiveTabId] = useState<string | null>("file-main-cpp");
+  const [fileTree, setFileTree] = useState<FileNode[]>([]);
+  const [isLoadingTree, setIsLoadingTree] = useState<boolean>(!!workspaceId);
+  const [treeError, setTreeError] = useState<string | null>(null);
+  const [expandedFolders, setExpandedFolders] = useState<string[]>([]);
+  const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
+  const [openTabs, setOpenTabs] = useState<EditorTab[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [bottomPanelTab, setBottomPanelTabState] = useState<BottomPanelTab>("terminal");
   const [isBottomPanelOpen, setIsBottomPanelOpen] = useState<boolean>(true);
   const [isBottomPanelMaximized, setIsBottomPanelMaximized] = useState<boolean>(false);
+  const [isMutating, setIsMutating] = useState<boolean>(false);
+
+  const isMountedRef = useRef(true);
+  const requestSeqRef = useRef(0);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // Fetch real database-backed directory tree
+  const loadDirectoryTree = useCallback(async () => {
+    if (!workspaceId) return;
+
+    const seq = ++requestSeqRef.current;
+
+    try {
+      setIsLoadingTree(true);
+      setTreeError(null);
+      const rawTree = await fileApi.getWorkspaceTree(workspaceId);
+      if (!isMountedRef.current || seq !== requestSeqRef.current) return;
+
+      const convertedTree = rawTree.map((item) => convertTreeNodeToFileNode(item));
+      setFileTree(convertedTree);
+
+      // Preserve expanded folders if valid, or auto-expand top-level folders on initial load
+      setExpandedFolders((prev) => {
+        if (prev.length > 0) return prev;
+        return convertedTree
+          .filter((item) => item.type === "folder" || (item.type as string) === "FOLDER")
+          .map((item) => item.id);
+      });
+    } catch (err: unknown) {
+      if (!isMountedRef.current || seq !== requestSeqRef.current) return;
+      const message = err instanceof Error ? err.message : "Failed to load directory tree";
+      setTreeError(message);
+    } finally {
+      if (isMountedRef.current && seq === requestSeqRef.current) {
+        setIsLoadingTree(false);
+      }
+    }
+  }, [workspaceId]);
+
+  useEffect(() => {
+    if (workspaceId) {
+      void loadDirectoryTree();
+    }
+  }, [workspaceId, loadDirectoryTree]);
 
   // Activity Bar item selection
   const setActiveActivity = useCallback(
@@ -73,7 +155,7 @@ export function useIDEState() {
   }, []);
 
   const expandAllFolders = useCallback(() => {
-    setExpandedFolders(getAllFolderIds(fileTree));
+    setExpandedFolders(getAllFolderIdsFromTree(fileTree));
   }, [fileTree]);
 
   const collapseAllFolders = useCallback(() => {
@@ -83,7 +165,7 @@ export function useIDEState() {
   // File selection & Tabs
   const selectFile = useCallback(
     (file: FileNode) => {
-      if (file.type === "folder") {
+      if (file.type === "folder" || (file.type as string) === "FOLDER") {
         toggleFolder(file.id);
         return;
       }
@@ -162,90 +244,153 @@ export function useIDEState() {
     setIsBottomPanelMaximized((prev) => !prev);
   }, []);
 
-  // File explorer actions (local mock state)
+  // Persistent File Explorer Operations
   const createFile = useCallback(
-    (name: string, parentFolderId?: string) => {
+    async (name: string, parentFolderId?: string) => {
       const trimmed = name.trim();
-      if (!trimmed) return;
+      if (!trimmed || !workspaceId) return;
 
-      const ext = trimmed.includes(".") ? trimmed.split(".").pop() : "txt";
-      const newFileId = `file-${Date.now()}`;
-      const newFile: FileNode = {
-        id: newFileId,
-        name: trimmed,
-        type: "file",
-        path: parentFolderId ? `${parentFolderId}/${trimmed}` : trimmed,
-        extension: ext,
-        language: ext ? ext.toUpperCase() : "Plain Text",
-        content: `// ${trimmed}\n// Created in CodeSync mock workspace\n`,
-      };
+      try {
+        setIsMutating(true);
+        const created = await fileApi.createFile(workspaceId, {
+          name: trimmed,
+          parentId: parentFolderId ?? null,
+        });
 
-      setFileTree((prev) => {
-        if (!parentFolderId) {
-          return [...prev, newFile];
+        await loadDirectoryTree();
+
+        if (parentFolderId) {
+          setExpandedFolders((prev) =>
+            prev.includes(parentFolderId) ? prev : [...prev, parentFolderId]
+          );
         }
-        function addRecurse(nodes: FileNode[]): FileNode[] {
-          return nodes.map((node) => {
-            if (node.id === parentFolderId && node.type === "folder") {
-              return {
-                ...node,
-                children: [...(node.children || []), newFile],
-              };
-            }
-            if (node.children) {
-              return { ...node, children: addRecurse(node.children) };
-            }
-            return node;
-          });
-        }
-        return addRecurse(prev);
-      });
 
-      selectFile(newFile);
+        const ext = getExtensionFromName(created.name);
+        const node: FileNode = {
+          id: created.id,
+          name: created.name,
+          type: "file",
+          path: created.name,
+          extension: ext,
+          language: getLanguageFromExtension(ext),
+          content: created.content || "",
+        };
+        selectFile(node);
+      } finally {
+        setIsMutating(false);
+      }
     },
-    [selectFile]
+    [workspaceId, loadDirectoryTree, selectFile]
   );
 
-  const createFolder = useCallback((name: string, parentFolderId?: string) => {
-    const trimmed = name.trim();
-    if (!trimmed) return;
+  const createFolder = useCallback(
+    async (name: string, parentFolderId?: string) => {
+      const trimmed = name.trim();
+      if (!trimmed || !workspaceId) return;
 
-    const newFolderId = `folder-${Date.now()}`;
-    const newFolder: FileNode = {
-      id: newFolderId,
-      name: trimmed,
-      type: "folder",
-      path: parentFolderId ? `${parentFolderId}/${trimmed}` : trimmed,
-      children: [],
-    };
-
-    setFileTree((prev) => {
-      if (!parentFolderId) {
-        return [...prev, newFolder];
-      }
-      function addRecurse(nodes: FileNode[]): FileNode[] {
-        return nodes.map((node) => {
-          if (node.id === parentFolderId && node.type === "folder") {
-            return {
-              ...node,
-              children: [...(node.children || []), newFolder],
-            };
-          }
-          if (node.children) {
-            return { ...node, children: addRecurse(node.children) };
-          }
-          return node;
+      try {
+        setIsMutating(true);
+        const created = await fileApi.createFolder(workspaceId, {
+          name: trimmed,
+          parentId: parentFolderId ?? null,
         });
+
+        await loadDirectoryTree();
+
+        setExpandedFolders((prev) => [...prev, created.id]);
+        if (parentFolderId) {
+          setExpandedFolders((prev) =>
+            prev.includes(parentFolderId) ? prev : [...prev, parentFolderId]
+          );
+        }
+      } finally {
+        setIsMutating(false);
       }
-      return addRecurse(prev);
-    });
+    },
+    [workspaceId, loadDirectoryTree]
+  );
 
-    setExpandedFolders((prev) => [...prev, newFolderId]);
-  }, []);
+  const renameItem = useCallback(
+    async (fileId: string, newName: string) => {
+      const trimmed = newName.trim();
+      if (!trimmed || !workspaceId) return;
 
-  const refreshFileTree = useCallback(() => {
-    setFileTree([...MOCK_FILE_TREE]);
-  }, []);
+      try {
+        setIsMutating(true);
+        const updated = await fileApi.renameItem(fileId, { name: trimmed });
+        await loadDirectoryTree();
+
+        // If open in tabs, update tab name & path
+        setOpenTabs((prev) =>
+          prev.map((tab) =>
+            tab.id === fileId
+              ? {
+                  ...tab,
+                  name: updated.name,
+                  extension: getExtensionFromName(updated.name),
+                  language: getLanguageFromExtension(getExtensionFromName(updated.name)),
+                }
+              : tab
+          )
+        );
+      } finally {
+        setIsMutating(false);
+      }
+    },
+    [workspaceId, loadDirectoryTree]
+  );
+
+  const deleteItem = useCallback(
+    async (fileId: string) => {
+      if (!workspaceId) return;
+
+      try {
+        setIsMutating(true);
+
+        // Find node to close any open tabs inside its subtree
+        const targetNode = findNodeById(fileTree, fileId);
+        const idsToClose = targetNode ? collectSubtreeIds(targetNode) : [fileId];
+
+        await fileApi.deleteItem(fileId);
+        await loadDirectoryTree();
+
+        // Close associated tabs
+        for (const id of idsToClose) {
+          closeTab(id);
+        }
+      } finally {
+        setIsMutating(false);
+      }
+    },
+    [workspaceId, fileTree, loadDirectoryTree, closeTab]
+  );
+
+  const moveItem = useCallback(
+    async (fileId: string, targetParentId: string | null) => {
+      if (!workspaceId) return;
+
+      try {
+        setIsMutating(true);
+        await fileApi.moveItem(fileId, { targetParentId });
+        await loadDirectoryTree();
+
+        if (targetParentId) {
+          setExpandedFolders((prev) =>
+            prev.includes(targetParentId) ? prev : [...prev, targetParentId]
+          );
+        }
+      } finally {
+        setIsMutating(false);
+      }
+    },
+    [workspaceId, loadDirectoryTree]
+  );
+
+  const refreshFileTree = useCallback(async () => {
+    if (workspaceId) {
+      await loadDirectoryTree();
+    }
+  }, [workspaceId, loadDirectoryTree]);
 
   const activeTab = openTabs.find((t) => t.id === activeTabId) || null;
 
@@ -255,6 +400,8 @@ export function useIDEState() {
     isSidebarOpen,
     toggleSidebar,
     fileTree,
+    isLoadingTree,
+    treeError,
     expandedFolders,
     toggleFolder,
     expandAllFolders,
@@ -274,6 +421,10 @@ export function useIDEState() {
     toggleBottomPanelMaximized,
     createFile,
     createFolder,
+    renameItem,
+    deleteItem,
+    moveItem,
     refreshFileTree,
+    isMutating,
   };
 }

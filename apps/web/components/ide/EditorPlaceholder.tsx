@@ -7,6 +7,7 @@ import { getFileIcon } from "./FileTreeItem";
 
 interface EditorPlaceholderProps {
   activeTab: EditorTab;
+  workspaceName?: string;
 }
 
 // Lightweight syntax tokenizer for realistic code presentation
@@ -104,7 +105,10 @@ function formatCodeLine(line: string, lineIndex: number) {
   return <>{parts}</>;
 }
 
-export const EditorPlaceholder: React.FC<EditorPlaceholderProps> = ({ activeTab }) => {
+export const EditorPlaceholder: React.FC<EditorPlaceholderProps> = ({
+  activeTab,
+  workspaceName = "Workspace",
+}) => {
   const lines = (activeTab.content || "").split("\n");
   // Default to highlighting line 12 or line 5
   const activeLineIndex = Math.min(10, Math.max(0, lines.length - 2));
@@ -116,7 +120,7 @@ export const EditorPlaceholder: React.FC<EditorPlaceholderProps> = ({ activeTab 
     <div className="flex-1 flex flex-col h-full bg-[#1E1E1E] overflow-hidden select-text">
       {/* Breadcrumb Bar */}
       <div className="h-7 px-4 bg-[#1E1E1E] border-b border-[#303030]/60 flex items-center gap-1.5 text-xs text-[#858585] select-none shrink-0">
-        <span className="hover:text-[#CCCCCC] cursor-pointer">MY-WORKSPACE</span>
+        <span className="hover:text-[#CCCCCC] cursor-pointer">{workspaceName}</span>
         {breadcrumbSegments.map((segment, index) => (
           <React.Fragment key={index}>
             <ChevronRight className="h-3 w-3 text-[#505050] shrink-0" />

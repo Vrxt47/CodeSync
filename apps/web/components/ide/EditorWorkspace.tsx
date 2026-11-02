@@ -7,6 +7,7 @@ import { EditorPlaceholder } from "./EditorPlaceholder";
 import { WelcomeScreen } from "./WelcomeScreen";
 
 interface EditorWorkspaceProps {
+  workspaceName?: string;
   tabs: EditorTab[];
   activeTabId: string | null;
   activeTab: EditorTab | null;
@@ -15,6 +16,7 @@ interface EditorWorkspaceProps {
 }
 
 export const EditorWorkspace: React.FC<EditorWorkspaceProps> = ({
+  workspaceName,
   tabs,
   activeTabId,
   activeTab,
@@ -32,7 +34,11 @@ export const EditorWorkspace: React.FC<EditorWorkspaceProps> = ({
       />
 
       {/* Editor Content Area */}
-      {activeTab ? <EditorPlaceholder activeTab={activeTab} /> : <WelcomeScreen />}
+      {activeTab ? (
+        <EditorPlaceholder activeTab={activeTab} workspaceName={workspaceName} />
+      ) : (
+        <WelcomeScreen />
+      )}
     </main>
   );
 };
