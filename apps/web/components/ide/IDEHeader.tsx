@@ -66,10 +66,14 @@ export const IDEHeader: React.FC<IDEHeaderProps> = ({
         </div>
 
         {/* Workspace Dropdown Pill */}
-        <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-[#252526] hover:bg-[#2A2D2E] text-xs font-mono text-[#CCCCCC] cursor-pointer border border-[#303030] transition-colors ml-1">
+        <Link
+          href="/dashboard"
+          className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-[#252526] hover:bg-[#2A2D2E] text-xs font-mono text-[#CCCCCC] cursor-pointer border border-[#303030] transition-colors ml-1"
+          title="Switch workspace (Dashboard)"
+        >
           <span className="truncate max-w-[120px] sm:max-w-[160px]">{workspaceName}</span>
           <ChevronDown className="h-3 w-3 text-[#858585] shrink-0" />
-        </div>
+        </Link>
       </div>
 
       {/* Center section: Search / Command input */}

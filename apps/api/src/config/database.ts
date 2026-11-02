@@ -1,6 +1,6 @@
-import { prisma, PrismaClient } from "@codesync/database";
+import { prisma, PrismaClient, Prisma } from "@codesync/database";
 
-export { prisma, PrismaClient };
+export { prisma, PrismaClient, Prisma };
 
 /**
  * Connect to PostgreSQL and verify database connectivity with a lightweight query.

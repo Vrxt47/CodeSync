@@ -10,7 +10,11 @@ import { BottomPanel } from "./BottomPanel";
 import { StatusBar } from "./StatusBar";
 import { MOCK_WORKSPACE_NAME } from "@/data/mockWorkspace";
 
-export const IDELayout: React.FC = () => {
+export interface IDELayoutProps {
+  workspaceName?: string;
+}
+
+export const IDELayout: React.FC<IDELayoutProps> = ({ workspaceName = MOCK_WORKSPACE_NAME }) => {
   const {
     activeActivity,
     setActiveActivity,
@@ -63,7 +67,7 @@ export const IDELayout: React.FC = () => {
     <div className="h-screen w-screen overflow-hidden flex flex-col bg-[#1E1E1E] text-[#CCCCCC] font-sans antialiased">
       {/* 1. Top Header */}
       <IDEHeader
-        workspaceName={MOCK_WORKSPACE_NAME}
+        workspaceName={workspaceName}
         isSidebarOpen={isSidebarOpen}
         onToggleSidebar={toggleSidebar}
         isBottomPanelOpen={isBottomPanelOpen}

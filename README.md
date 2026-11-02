@@ -455,52 +455,96 @@ CodeSync features a production-grade dual-token authentication system designed w
 
 ---
 
-## 15. Available Development Scripts
+## 15. Workspace Management System (Chunk 5)
 
-| Command                 | Purpose                                                       |
-| ----------------------- | ------------------------------------------------------------- |
-| `pnpm dev`              | Starts all applications (Web, API, Collab) concurrently       |
-| `pnpm dev:web`          | Starts Next.js frontend in development mode (:3000)           |
-| `pnpm dev:api`          | Starts Express API in watch mode (:4000)                      |
-| `pnpm dev:collab`       | Starts Hocuspocus server in watch mode (:1234)                |
-| `pnpm build`            | Builds shared packages, API, Collab, and Web for production   |
-| `pnpm lint`             | Runs ESLint across all packages and apps                      |
-| `pnpm typecheck`        | Runs `tsc --noEmit` across all workspace packages             |
-| `pnpm format`           | Formats the codebase using Prettier                           |
-| `pnpm format:check`     | Checks formatting compliance with Prettier                    |
-| `pnpm test`             | Runs database integrity, backend, auth, and concurrency tests |
-| `pnpm test:db`          | Executes comprehensive 9-model database integrity tests       |
-| `pnpm test:backend`     | Executes Express API, health, error, and validation tests     |
-| `pnpm test:auth`        | Executes Chunk 4 authentication and session security tests    |
-| `pnpm test:concurrency` | Executes atomic rotation, concurrency & rollback tests        |
-| `pnpm studio`           | Opens Prisma Studio web interface (root or database package)  |
-| `pnpm prisma <cmd>`     | Runs any Prisma CLI command with root `.env` loaded           |
-| `pnpm db:generate`      | Generates Prisma client types from `schema.prisma`            |
-| `pnpm db:migrate`       | Runs Prisma migrations in development                         |
-| `pnpm db:deploy`        | Applies pending Prisma migrations in production               |
-| `pnpm db:seed`          | Seeds database with test user, workspace, and files           |
-| `pnpm db:push`          | Synchronizes database schema with PostgreSQL                  |
-| `pnpm db:studio`        | Opens Prisma Studio web interface                             |
-| `pnpm infra:up`         | Boots PostgreSQL and Redis containers                         |
-| `pnpm infra:down`       | Shuts down PostgreSQL and Redis containers                    |
-| `pnpm infra:logs`       | Streams container output logs                                 |
+CodeSync provides a robust, collaborative workspace management architecture with fine-grained access control, tenant isolation, activity logging, and responsive frontend dashboard interfaces:
 
----
+### Core Architecture & Capabilities
 
-## 16. Validation Endpoints
+- **Transactional Workspace Creation**: Creating a workspace atomically creates the `Workspace` entity, assigns the creator as `OWNER` in `WorkspaceMember`, and records a `WORKSPACE_CREATED` event in `ActivityLog` within a single PostgreSQL transaction (`prisma.$transaction`).
+- **Workspace Tenant Isolation**: Workspace listings (`GET /api/workspaces`) strictly filter by the authenticated user's memberships (`members: { some: { userId } }`). Users cannot view or query workspaces they do not belong to.
+- **Role-Based Access Control (RBAC)**:
+  - **OWNER**: Full management authority. Can rename workspace, delete workspace (cascades dependent records), invite members, and manage roles.
+  - **EDITOR**: Can view, edit code, execute code, and participate in collaboration. Cannot rename or delete the workspace.
+  - **VIEWER**: Read-only access to files and editor; live awareness observer. Cannot modify files, run code, rename, or delete the workspace.
+- **Detail Retrieval & Access Tracking**: Querying `GET /api/workspaces/:workspaceId` verifies membership (returning `403 WORKSPACE_ACCESS_DENIED` for unauthorized users) and automatically updates `lastAccessedAt = new Date()` for recency sorting.
+- **Efficient N+1 Query Elimination**: Member counts are fetched in a single aggregated query via Prisma's `_count: { select: { members: true } }`, and the current user's role is retrieved via scoped member selection.
+- **Audit Logging**: Workspace creation (`WORKSPACE_CREATED`) and updates (`WORKSPACE_UPDATED`) are automatically logged to `ActivityLog` with metadata tracking old and new names.
 
-| Service  | Target                              | Expected Result                                                |
-| -------- | ----------------------------------- | -------------------------------------------------------------- |
-| Frontend | `http://localhost:3000`             | CodeSync IDE interface                                         |
-| Frontend | `http://localhost:3000/register`    | Dedicated user registration page                               |
-| Frontend | `http://localhost:3000/login`       | User authentication page                                       |
-| Frontend | `http://localhost:3000/dashboard`   | Protected user profile and session dashboard                   |
-| Backend  | `http://localhost:4000/api/health`  | `{"status":"success","message":"CodeSync API is running",...}` |
-| Backend  | `http://localhost:4000/api/auth/me` | Current authenticated user payload (Bearer token required)     |
-| Collab   | `ws://localhost:1234`               | Accepts WebSocket connections                                  |
+### Workspace API Endpoints
+
+| Method   | Endpoint                       | Access Role   | Description                                                                      |
+| -------- | ------------------------------ | ------------- | -------------------------------------------------------------------------------- |
+| `POST`   | `/api/workspaces`              | Authenticated | Creates a new workspace, assigns creator as OWNER, logs `WORKSPACE_CREATED`      |
+| `GET`    | `/api/workspaces`              | Authenticated | Lists workspaces where user is a member; supports `?search=` filter and counts   |
+| `GET`    | `/api/workspaces/:workspaceId` | Member        | Retrieves details, verifies membership (403 for non-members), updates recency    |
+| `PATCH`  | `/api/workspaces/:workspaceId` | OWNER Only    | Renames workspace, validates name, logs `WORKSPACE_UPDATED` (403 for non-owners) |
+| `DELETE` | `/api/workspaces/:workspaceId` | OWNER Only    | Deletes workspace and cascades all dependent members, files, and activity logs   |
+
+### Frontend Workspace Dashboard & IDE Routing
+
+- **`/dashboard`**: Complete workspace management dashboard:
+  - **Header**: CodeSync branding, profile badge, "+ Create Workspace" modal trigger, and Sign Out.
+  - **Search Bar**: Real-time filtering by workspace name with instant results and empty-state messaging.
+  - **Recent Workspaces**: Visual grid of up to 4 most recently accessed/updated workspaces.
+  - **All Workspaces**: Complete responsive grid showing role badges (`OWNER`, `EDITOR`, `VIEWER`), member counts, relative update/access timestamps, and contextual settings menus.
+  - **Create Workspace Dialog**: Modal dialog with input validation, error handling, and autofocus.
+  - **Rename Workspace Dialog**: Pre-populated modal dialog allowing owners to update workspace names.
+  - **Delete Workspace Dialog**: High-friction confirmation modal requiring exact workspace name input to prevent accidental deletions.
+- **`/workspace/:workspaceId`**: Dedicated IDE route that verifies user access, loads workspace metadata, updates access recency, and renders the collaborative IDE interface.
 
 ---
 
-## 17. Development Guidelines
+## 16. Available Development Scripts
+
+| Command                 | Purpose                                                                  |
+| ----------------------- | ------------------------------------------------------------------------ |
+| `pnpm dev`              | Starts all applications (Web, API, Collab) concurrently                  |
+| `pnpm dev:web`          | Starts Next.js frontend in development mode (:3000)                      |
+| `pnpm dev:api`          | Starts Express API in watch mode (:4000)                                 |
+| `pnpm dev:collab`       | Starts Hocuspocus server in watch mode (:1234)                           |
+| `pnpm build`            | Builds shared packages, API, Collab, and Web for production              |
+| `pnpm lint`             | Runs ESLint across all packages and apps                                 |
+| `pnpm typecheck`        | Runs `tsc --noEmit` across all workspace packages                        |
+| `pnpm format`           | Formats the codebase using Prettier                                      |
+| `pnpm format:check`     | Checks formatting compliance with Prettier                               |
+| `pnpm test`             | Runs database integrity, backend, auth, concurrency, and workspace tests |
+| `pnpm test:db`          | Executes comprehensive 9-model database integrity tests                  |
+| `pnpm test:backend`     | Executes Express API, health, error, and validation tests                |
+| `pnpm test:auth`        | Executes Chunk 4 authentication and session security tests               |
+| `pnpm test:concurrency` | Executes atomic rotation, concurrency & rollback tests                   |
+| `pnpm test:workspaces`  | Executes Chunk 5 workspace creation, isolation, & RBAC tests             |
+| `pnpm studio`           | Opens Prisma Studio web interface (root or database package)             |
+| `pnpm prisma <cmd>`     | Runs any Prisma CLI command with root `.env` loaded                      |
+| `pnpm db:generate`      | Generates Prisma client types from `schema.prisma`                       |
+| `pnpm db:migrate`       | Runs Prisma migrations in development                                    |
+| `pnpm db:deploy`        | Applies pending Prisma migrations in production                          |
+| `pnpm db:seed`          | Seeds database with test user, workspace, and files                      |
+| `pnpm db:push`          | Synchronizes database schema with PostgreSQL                             |
+| `pnpm db:studio`        | Opens Prisma Studio web interface                                        |
+| `pnpm infra:up`         | Boots PostgreSQL and Redis containers                                    |
+| `pnpm infra:down`       | Shuts down PostgreSQL and Redis containers                               |
+| `pnpm infra:logs`       | Streams container output logs                                            |
+
+---
+
+## 17. Validation Endpoints
+
+| Service  | Target                                     | Expected Result                                                |
+| -------- | ------------------------------------------ | -------------------------------------------------------------- |
+| Frontend | `http://localhost:3000`                    | CodeSync IDE interface                                         |
+| Frontend | `http://localhost:3000/register`           | Dedicated user registration page                               |
+| Frontend | `http://localhost:3000/login`              | User authentication page                                       |
+| Frontend | `http://localhost:3000/dashboard`          | Protected workspace management & user dashboard                |
+| Frontend | `http://localhost:3000/workspace/:id`      | Dynamic collaborative workspace IDE                            |
+| Backend  | `http://localhost:4000/api/health`         | `{"status":"success","message":"CodeSync API is running",...}` |
+| Backend  | `http://localhost:4000/api/auth/me`        | Current authenticated user payload (Bearer token required)     |
+| Backend  | `http://localhost:4000/api/workspaces`     | Workspace creation & listing endpoints (Bearer token required) |
+| Backend  | `http://localhost:4000/api/workspaces/:id` | Workspace details, rename, delete (RBAC enforced)              |
+| Collab   | `ws://localhost:1234`                      | Accepts WebSocket connections                                  |
+
+---
+
+## 18. Development Guidelines
 
 All developers and AI agents must adhere to the permanent architectural rules defined in [AGENTS.md](AGENTS.md).

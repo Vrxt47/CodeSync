@@ -66,12 +66,13 @@ model Session {
 }
 
 model Workspace {
-  id           String            @id @default(uuid())
-  name         String
-  description  String?
-  ownerId      String            @map("owner_id")
-  createdAt    DateTime          @default(now()) @map("created_at")
-  updatedAt    DateTime          @updatedAt @map("updated_at")
+  id             String            @id @default(uuid())
+  name           String
+  description    String?
+  ownerId        String            @map("owner_id")
+  lastAccessedAt DateTime?         @map("last_accessed_at")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
 
   owner        User              @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Restrict)
   members      WorkspaceMember[]
@@ -82,6 +83,7 @@ model Workspace {
   activityLogs ActivityLog[]
 
   @@index([ownerId])
+  @@index([lastAccessedAt])
   @@map("workspaces")
 }
 
@@ -90,6 +92,7 @@ model WorkspaceMember {
   workspaceId String        @map("workspace_id")
   userId      String        @map("user_id")
   role        WorkspaceRole
+  createdAt   DateTime      @default(now()) @map("created_at")
 
   workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
