@@ -35,6 +35,10 @@ export const moveFileSchema = z.object({
   targetParentId: z.string().uuid("Target parent ID must be a valid UUID").optional().nullable(),
 });
 
+export const updateFileContentSchema = z.object({
+  content: z.string({ required_error: "Content must be a string" }),
+});
+
 export const workspaceIdParamSchema = z.object({
   workspaceId: z.string().uuid("Invalid workspace ID format"),
 });

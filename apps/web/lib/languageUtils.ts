@@ -45,3 +45,5 @@ export function getExtensionFromName(name: string): string | undefined {
   const parts = name.split(".");
   return parts.length > 1 ? parts.pop()?.toLowerCase() : undefined;
 }
+
+export { getMonacoLanguage, getLanguageDisplayName } from "./editor/languageUtils";

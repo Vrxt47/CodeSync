@@ -21,6 +21,41 @@ export class FileController {
     }
   }
 
+  public static async getById(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const userId = req.user!.id;
+      const fileId = req.params.fileId as string;
+      const file = await FileService.getFileById(fileId, userId);
+
+      res.status(200).json({
+        success: true,
+        data: file,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  public static async updateContent(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const userId = req.user!.id;
+      const fileId = req.params.fileId as string;
+      const file = await FileService.updateContent(fileId, userId, req.body);
+
+      res.status(200).json({
+        success: true,
+        message: "File saved successfully",
+        data: file,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   public static async createFile(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const userId = req.user!.id;

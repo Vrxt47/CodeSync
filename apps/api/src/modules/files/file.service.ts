@@ -5,6 +5,7 @@ import type {
   CreateFolderInput,
   RenameFileInput,
   MoveFileInput,
+  UpdateFileContentInput,
   FileItemResponse,
   FileTreeNode,
   WorkspaceTreeResponse,
@@ -129,6 +130,63 @@ export class FileService {
       workspaceId,
       tree: rootNodes,
     };
+  }
+
+  /**
+   * Retrieve a single file's complete metadata and content.
+   * Validates workspace membership and restricts folder reading.
+   */
+  public static async getFileById(fileId: string, userId: string): Promise<FileItemResponse> {
+    const file = await prisma.file.findUnique({
+      where: { id: fileId },
+    });
+
+    if (!file) {
+      throw new AppError("File not found", 404, "FILE_NOT_FOUND");
+    }
+
+    await this.verifyWorkspacePermission(file.workspaceId, userId, false);
+
+    if (file.type !== "FILE") {
+      throw new AppError("Cannot retrieve file content for a directory", 400, "CANNOT_OPEN_FOLDER");
+    }
+
+    return file;
+  }
+
+  /**
+   * Update a file's content.
+   * Requires write permission (EDITOR or OWNER; VIEWER is rejected with 403).
+   * Rejects modification of folders with 400.
+   */
+  public static async updateContent(
+    fileId: string,
+    userId: string,
+    input: UpdateFileContentInput
+  ): Promise<FileItemResponse> {
+    const file = await prisma.file.findUnique({
+      where: { id: fileId },
+    });
+
+    if (!file) {
+      throw new AppError("File not found", 404, "FILE_NOT_FOUND");
+    }
+
+    await this.verifyWorkspacePermission(file.workspaceId, userId, true);
+
+    if (file.type !== "FILE") {
+      throw new AppError("Cannot save content to a directory", 400, "CANNOT_MODIFY_FOLDER");
+    }
+
+    const updated = await prisma.file.update({
+      where: { id: fileId },
+      data: {
+        content: input.content,
+        updatedAt: new Date(),
+      },
+    });
+
+    return updated;
   }
 
   /**

@@ -37,6 +37,15 @@ export const IDELayout: React.FC<IDELayoutProps> = ({
     activeTab,
     setActiveTab,
     closeTab,
+    updateTabContent,
+    markTabSaved,
+    cursorPosition,
+    setCursorPosition,
+    activeLanguage,
+    setActiveLanguage,
+    pendingTransition,
+    cancelPendingTransition,
+    confirmPendingTransition,
     bottomPanelTab,
     setBottomPanelTab,
     isBottomPanelOpen,
@@ -122,6 +131,13 @@ export const IDELayout: React.FC<IDELayoutProps> = ({
             activeTab={activeTab}
             onSelectTab={setActiveTab}
             onCloseTab={closeTab}
+            onUpdateTabContent={updateTabContent}
+            onTabSaved={markTabSaved}
+            onCursorChange={setCursorPosition}
+            onLanguageChange={setActiveLanguage}
+            pendingTransition={pendingTransition}
+            onCancelPendingTransition={cancelPendingTransition}
+            onConfirmPendingTransition={confirmPendingTransition}
           />
 
           {/* Bottom Output / Terminal / Problems Panel */}
@@ -138,7 +154,13 @@ export const IDELayout: React.FC<IDELayoutProps> = ({
       </div>
 
       {/* 3. Bottom Status Bar */}
-      <StatusBar workspaceName={workspaceName} activeTab={activeTab} />
+      <StatusBar
+        workspaceName={workspaceName}
+        activeTab={activeTab}
+        cursorPosition={cursorPosition}
+        language={activeLanguage}
+        indentation="Spaces: 4"
+      />
     </div>
   );
 };

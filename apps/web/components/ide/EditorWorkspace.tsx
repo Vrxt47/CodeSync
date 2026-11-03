@@ -1,9 +1,10 @@
 "use client";
 
 import React from "react";
-import { EditorTab } from "@/types/ide";
+import type { EditorTab } from "@/types/ide";
+import type { CursorPosition } from "@/lib/editor/editorTypes";
 import { EditorTabs } from "./EditorTabs";
-import { EditorPlaceholder } from "./EditorPlaceholder";
+import { EditorContainer } from "../editor/EditorContainer";
 import { WelcomeScreen } from "./WelcomeScreen";
 
 interface EditorWorkspaceProps {
@@ -13,6 +14,16 @@ interface EditorWorkspaceProps {
   activeTab: EditorTab | null;
   onSelectTab: (tabId: string) => void;
   onCloseTab: (tabId: string, e: React.MouseEvent) => void;
+  onUpdateTabContent?: (tabId: string, content: string, isDirty: boolean) => void;
+  onTabSaved?: (tabId: string, savedContent: string) => void;
+  onCursorChange?: (cursor: CursorPosition) => void;
+  onLanguageChange?: (language: string) => void;
+  pendingTransition?: {
+    action: () => void;
+    targetName: string;
+  } | null;
+  onCancelPendingTransition?: () => void;
+  onConfirmPendingTransition?: () => void;
 }
 
 export const EditorWorkspace: React.FC<EditorWorkspaceProps> = ({
@@ -22,6 +33,13 @@ export const EditorWorkspace: React.FC<EditorWorkspaceProps> = ({
   activeTab,
   onSelectTab,
   onCloseTab,
+  onUpdateTabContent,
+  onTabSaved,
+  onCursorChange,
+  onLanguageChange,
+  pendingTransition,
+  onCancelPendingTransition,
+  onConfirmPendingTransition,
 }) => {
   return (
     <main className="flex-1 flex flex-col h-full bg-[#1E1E1E] overflow-hidden min-w-0 z-0">
@@ -35,7 +53,17 @@ export const EditorWorkspace: React.FC<EditorWorkspaceProps> = ({
 
       {/* Editor Content Area */}
       {activeTab ? (
-        <EditorPlaceholder activeTab={activeTab} workspaceName={workspaceName} />
+        <EditorContainer
+          workspaceName={workspaceName}
+          activeTab={activeTab}
+          onUpdateTabContent={onUpdateTabContent}
+          onTabSaved={onTabSaved}
+          onCursorChange={onCursorChange}
+          onLanguageChange={onLanguageChange}
+          pendingTransition={pendingTransition}
+          onCancelPendingTransition={onCancelPendingTransition}
+          onConfirmPendingTransition={onConfirmPendingTransition}
+        />
       ) : (
         <WelcomeScreen />
       )}

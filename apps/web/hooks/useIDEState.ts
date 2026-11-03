@@ -81,6 +81,15 @@ export function useIDEState(options?: UseIDEStateOptions) {
   const [isBottomPanelOpen, setIsBottomPanelOpen] = useState<boolean>(true);
   const [isBottomPanelMaximized, setIsBottomPanelMaximized] = useState<boolean>(false);
   const [isMutating, setIsMutating] = useState<boolean>(false);
+  const [cursorPosition, setCursorPosition] = useState<{ lineNumber: number; column: number }>({
+    lineNumber: 1,
+    column: 1,
+  });
+  const [activeLanguage, setActiveLanguage] = useState<string>("Plain Text");
+  const [pendingTransition, setPendingTransition] = useState<{
+    action: () => void;
+    targetName: string;
+  } | null>(null);
 
   const isMountedRef = useRef(true);
   const requestSeqRef = useRef(0);
@@ -162,7 +171,54 @@ export function useIDEState(options?: UseIDEStateOptions) {
     setExpandedFolders([]);
   }, []);
 
-  // File selection & Tabs
+  const activeTab = openTabs.find((t) => t.id === activeTabId) || null;
+
+  // Tab content & dirty status synchronization
+  const updateTabContent = useCallback((tabId: string, content: string, isDirty: boolean) => {
+    setOpenTabs((prev) =>
+      prev.map((tab) => (tab.id === tabId ? { ...tab, content, isDirty } : tab))
+    );
+  }, []);
+
+  const markTabSaved = useCallback((tabId: string, savedContent: string) => {
+    setOpenTabs((prev) =>
+      prev.map((tab) =>
+        tab.id === tabId
+          ? {
+              ...tab,
+              content: savedContent,
+              isDirty: false,
+            }
+          : tab
+      )
+    );
+  }, []);
+
+  // Internal direct tab/file actions
+  const doSelectFile = useCallback((file: FileNode) => {
+    setSelectedFileId(file.id);
+
+    setOpenTabs((prev) => {
+      const existing = prev.find((t) => t.id === file.id);
+      if (existing) {
+        return prev;
+      }
+      const newTab: EditorTab = {
+        id: file.id,
+        name: file.name,
+        path: file.path,
+        extension: file.extension,
+        language: file.language || "Plain Text",
+        content: file.content || "",
+        isDirty: false,
+      };
+      return [...prev, newTab];
+    });
+
+    setActiveTabId(file.id);
+  }, []);
+
+  // File selection with unsaved changes interception
   const selectFile = useCallback(
     (file: FileNode) => {
       if (file.type === "folder" || (file.type as string) === "FOLDER") {
@@ -170,34 +226,20 @@ export function useIDEState(options?: UseIDEStateOptions) {
         return;
       }
 
-      setSelectedFileId(file.id);
+      if (activeTab?.isDirty && activeTab.id !== file.id) {
+        setPendingTransition({
+          action: () => doSelectFile(file),
+          targetName: file.name,
+        });
+        return;
+      }
 
-      setOpenTabs((prev) => {
-        const existing = prev.find((t) => t.id === file.id);
-        if (existing) {
-          return prev;
-        }
-        const newTab: EditorTab = {
-          id: file.id,
-          name: file.name,
-          path: file.path,
-          extension: file.extension,
-          language: file.language || "Plain Text",
-          content: file.content || "",
-        };
-        return [...prev, newTab];
-      });
-
-      setActiveTabId(file.id);
+      doSelectFile(file);
     },
-    [toggleFolder]
+    [activeTab, doSelectFile, toggleFolder]
   );
 
-  const closeTab = useCallback((tabId: string, e?: React.MouseEvent) => {
-    if (e) {
-      e.stopPropagation();
-    }
-
+  const doCloseTab = useCallback((tabId: string) => {
     setOpenTabs((prev) => {
       const index = prev.findIndex((t) => t.id === tabId);
       if (index === -1) return prev;
@@ -225,9 +267,53 @@ export function useIDEState(options?: UseIDEStateOptions) {
     });
   }, []);
 
-  const setActiveTab = useCallback((tabId: string) => {
+  const closeTab = useCallback(
+    (tabId: string, e?: React.MouseEvent) => {
+      if (e) {
+        e.stopPropagation();
+      }
+
+      const tabToClose = openTabs.find((t) => t.id === tabId);
+      if (tabToClose?.isDirty) {
+        setPendingTransition({
+          action: () => doCloseTab(tabId),
+          targetName: tabToClose.name,
+        });
+        return;
+      }
+
+      doCloseTab(tabId);
+    },
+    [doCloseTab, openTabs]
+  );
+
+  const doSetActiveTab = useCallback((tabId: string) => {
     setActiveTabId(tabId);
     setSelectedFileId(tabId);
+  }, []);
+
+  const setActiveTab = useCallback(
+    (tabId: string) => {
+      if (activeTab?.isDirty && activeTab.id !== tabId) {
+        const targetTab = openTabs.find((t) => t.id === tabId);
+        setPendingTransition({
+          action: () => doSetActiveTab(tabId),
+          targetName: targetTab?.name || "file",
+        });
+        return;
+      }
+
+      doSetActiveTab(tabId);
+    },
+    [activeTab, doSetActiveTab, openTabs]
+  );
+
+  const cancelPendingTransition = useCallback(() => {
+    setPendingTransition(null);
+  }, []);
+
+  const confirmPendingTransition = useCallback(() => {
+    setPendingTransition(null);
   }, []);
 
   // Bottom Panel
@@ -392,8 +478,6 @@ export function useIDEState(options?: UseIDEStateOptions) {
     }
   }, [workspaceId, loadDirectoryTree]);
 
-  const activeTab = openTabs.find((t) => t.id === activeTabId) || null;
-
   return {
     activeActivity,
     setActiveActivity,
@@ -413,6 +497,15 @@ export function useIDEState(options?: UseIDEStateOptions) {
     activeTab,
     setActiveTab,
     closeTab,
+    updateTabContent,
+    markTabSaved,
+    cursorPosition,
+    setCursorPosition,
+    activeLanguage,
+    setActiveLanguage,
+    pendingTransition,
+    cancelPendingTransition,
+    confirmPendingTransition,
     bottomPanelTab,
     setBottomPanelTab,
     isBottomPanelOpen,

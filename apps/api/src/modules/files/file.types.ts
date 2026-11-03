@@ -5,6 +5,7 @@ import type {
   createFolderSchema,
   renameFileSchema,
   moveFileSchema,
+  updateFileContentSchema,
   workspaceIdParamSchema,
   fileIdParamSchema,
 } from "./file.schema";
@@ -14,6 +15,7 @@ export type CreateFileInput = z.infer<typeof createFileSchema>;
 export type CreateFolderInput = z.infer<typeof createFolderSchema>;
 export type RenameFileInput = z.infer<typeof renameFileSchema>;
 export type MoveFileInput = z.infer<typeof moveFileSchema>;
+export type UpdateFileContentInput = z.infer<typeof updateFileContentSchema>;
 export type WorkspaceIdParam = z.infer<typeof workspaceIdParamSchema>;
 export type FileIdParam = z.infer<typeof fileIdParamSchema>;
 

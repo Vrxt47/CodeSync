@@ -46,3 +46,7 @@ export interface RenameRequest {
 export interface MoveRequest {
   targetParentId: string | null;
 }
+
+export interface UpdateContentRequest {
+  content: string;
+}

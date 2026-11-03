@@ -43,14 +43,21 @@ export const EditorTabs: React.FC<EditorTabsProps> = ({
             {/* File name */}
             <span className="truncate max-w-[140px]">{tab.name}</span>
 
-            {/* Close tab button */}
+            {/* Close tab button / Dirty Indicator */}
             <button
               onClick={(e) => onCloseTab(tab.id, e)}
-              title="Close (Ctrl+W)"
-              className="p-0.5 rounded-sm hover:bg-[#303030] hover:text-white text-[#858585] transition-colors"
+              title={tab.isDirty ? "Unsaved changes - Close (Ctrl+W)" : "Close (Ctrl+W)"}
+              className="p-0.5 rounded-sm hover:bg-[#303030] hover:text-white text-[#858585] transition-colors relative flex items-center justify-center h-4 w-4"
               aria-label={`Close ${tab.name}`}
             >
-              <X className="h-3 w-3" />
+              {tab.isDirty ? (
+                <>
+                  <span className="h-2 w-2 rounded-full bg-white group-hover:hidden" />
+                  <X className="h-3 w-3 hidden group-hover:block" />
+                </>
+              ) : (
+                <X className="h-3 w-3" />
+              )}
             </button>
           </div>
         );

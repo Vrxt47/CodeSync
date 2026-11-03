@@ -7,10 +7,19 @@ import { EditorTab } from "@/types/ide";
 interface StatusBarProps {
   workspaceName?: string;
   activeTab: EditorTab | null;
+  cursorPosition?: { lineNumber: number; column: number };
+  language?: string;
+  indentation?: string;
 }
 
-export const StatusBar: React.FC<StatusBarProps> = ({ workspaceName = "workspace", activeTab }) => {
-  const language = activeTab?.language || "Plain Text";
+export const StatusBar: React.FC<StatusBarProps> = ({
+  workspaceName = "workspace",
+  activeTab,
+  cursorPosition = { lineNumber: 1, column: 1 },
+  language: customLanguage,
+  indentation = "Spaces: 4",
+}) => {
+  const language = customLanguage || activeTab?.language || "Plain Text";
 
   return (
     <footer className="h-6 bg-[#007ACC] text-white flex items-center justify-between px-2 text-[11px] font-sans select-none shrink-0 z-30">
@@ -53,9 +62,9 @@ export const StatusBar: React.FC<StatusBarProps> = ({ workspaceName = "workspace
         {/* Active Line & Column */}
         <div
           title="Cursor Position"
-          className="hover:bg-black/10 px-1.5 py-0.5 rounded cursor-pointer transition-colors hidden md:block"
+          className="hover:bg-black/10 px-1.5 py-0.5 rounded cursor-pointer transition-colors hidden md:block font-mono"
         >
-          Ln 14, Col 5
+          Ln {cursorPosition.lineNumber}, Col {cursorPosition.column}
         </div>
 
         {/* Indentation */}
@@ -63,7 +72,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({ workspaceName = "workspace
           title="Indentation: Spaces"
           className="hover:bg-black/10 px-1.5 py-0.5 rounded cursor-pointer transition-colors hidden md:block"
         >
-          Spaces: 4
+          {indentation}
         </div>
 
         {/* Encoding */}
