@@ -3,6 +3,7 @@ import { createApp } from "../apps/api/src/app";
 import { connectDatabase, disconnectDatabase, prisma } from "../apps/api/src/config/database";
 import { AuthService } from "../apps/api/src/modules/auth/auth.service";
 import { hashRefreshToken } from "../apps/api/src/utils/token.utils";
+import { assertTestDatabase, TestFixtureTracker } from "./testDbGuard";
 
 async function runConcurrencyTests() {
   console.log("=================================================");
@@ -24,6 +25,9 @@ async function runConcurrencyTests() {
 
   // Connect to DB and initialize app
   await connectDatabase();
+  await assertTestDatabase();
+
+  const fixtures = new TestFixtureTracker();
   const app = createApp();
 
   const server = http.createServer(app);
@@ -71,6 +75,7 @@ async function runConcurrencyTests() {
 
     const regData = regRes.body?.data as Record<string, unknown>;
     userId = (regData?.user as Record<string, unknown>)?.id as string;
+    fixtures.trackUser(userId);
     let initialRefreshToken = extractCookie(regRes.res, "codesync_refresh_token") || "";
 
     assert(
@@ -293,27 +298,20 @@ async function runConcurrencyTests() {
       typeof successfulRetry.accessToken === "string",
       "Old session can now be rotated normally after rollback"
     );
-
-    // -------------------------------------------------------------------------
-    // CLEANUP
-    // -------------------------------------------------------------------------
-    console.log("\n--- [CLEANUP] ---");
-    await prisma.session.deleteMany({ where: { userId } });
-    await prisma.user.deleteMany({ where: { id: userId } });
-    console.log("  🧹 Test user and sessions cleaned up");
-
-    // Graceful shutdown
-    await new Promise<void>((resolve, reject) => {
-      server.close(async (err) => {
-        if (err) return reject(err);
-        await disconnectDatabase();
-        assert(true, "Server and database gracefully shut down");
-        resolve();
-      });
-    });
   } catch (error) {
     console.error("❌ Unexpected concurrency test error:", error);
     failed++;
+  } finally {
+    console.log("\n--- [CLEANUP: Tracked Fixtures] ---");
+    try {
+      await fixtures.cleanup();
+      await fixtures.verifyCleanup();
+    } catch (cleanupErr) {
+      console.error("❌ Cleanup failed:", cleanupErr);
+      failed++;
+    }
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await disconnectDatabase();
   }
 
   console.log("\n=================================================");

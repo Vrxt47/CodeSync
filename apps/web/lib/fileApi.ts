@@ -38,12 +38,20 @@ export const fileApi = {
   },
 
   /**
-   * Save/update a file's content by ID.
+   * Save/update a file's content by ID with mandatory optimistic concurrency revision locking.
    */
-  async updateFileContent(fileId: string, content: string): Promise<FileSystemItem> {
+  async updateFileContent(
+    fileId: string,
+    content: string,
+    expectedVersion: number
+  ): Promise<FileSystemItem> {
+    if (typeof expectedVersion !== "number" || Number.isNaN(expectedVersion)) {
+      throw new Error("expectedVersion is required to save file content");
+    }
+
     const res = await apiClient<ApiResponse<FileSystemItem>>(`/api/files/${fileId}`, {
       method: "PUT",
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, expectedVersion }),
     });
     if (!res.data) throw new Error(res.message || "Failed to save file content");
     return res.data;
@@ -110,5 +118,19 @@ export const fileApi = {
     });
     if (!res.data) throw new Error(res.message || "Failed to move item");
     return res.data;
+  },
+
+  /**
+   * Format code content using language-specific formatter.
+   */
+  async formatFile(fileId: string, content: string, language: string): Promise<string> {
+    const res = await apiClient<ApiResponse<{ formattedContent: string }>>("/api/format", {
+      method: "POST",
+      body: JSON.stringify({ fileId, content, language }),
+    });
+    if (!res.data?.formattedContent) {
+      throw new Error(res.message || "Failed to format code");
+    }
+    return res.data.formattedContent;
   },
 };

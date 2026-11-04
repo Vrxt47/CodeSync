@@ -7,6 +7,7 @@ export interface FileSystemItem {
   name: string;
   type: FileType;
   content?: string;
+  version: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -19,6 +20,7 @@ export interface FileTreeNode {
   type: FileType;
   path: string;
   extension?: string;
+  version?: number;
   createdAt: string;
   updatedAt: string;
   children?: FileTreeNode[];
@@ -49,4 +51,5 @@ export interface MoveRequest {
 
 export interface UpdateContentRequest {
   content: string;
+  expectedVersion: number;
 }

@@ -1,6 +1,7 @@
 import http from "node:http";
 import { createApp } from "../apps/api/src/app";
 import { connectDatabase, disconnectDatabase, prisma } from "../apps/api/src/config/database";
+import { assertTestDatabase, TestFixtureTracker } from "./testDbGuard";
 
 async function runConcurrencyAuditTests() {
   console.log("=================================================");
@@ -21,6 +22,9 @@ async function runConcurrencyAuditTests() {
   }
 
   await connectDatabase();
+  await assertTestDatabase();
+
+  const fixtures = new TestFixtureTracker();
   const app = createApp();
 
   const server = http.createServer(app);
@@ -57,6 +61,7 @@ async function runConcurrencyAuditTests() {
     });
     tokenA = regA.body?.data?.accessToken;
     userIdA = regA.body?.data?.user?.id;
+    fixtures.trackUser(userIdA);
     assert(regA.status === 201, "Audit User registered successfully");
 
     const wsRes = await request("/api/workspaces", {
@@ -68,6 +73,7 @@ async function runConcurrencyAuditTests() {
       body: JSON.stringify({ name: "Concurrency Audit Workspace" }),
     });
     workspaceAId = wsRes.body?.data?.id;
+    fixtures.trackWorkspace(workspaceAId);
     assert(wsRes.status === 201, "Audit Workspace created successfully");
 
     // -------------------------------------------------------------------------
@@ -271,28 +277,20 @@ async function runConcurrencyAuditTests() {
 
     const deltaInDb = await prisma.file.findUnique({ where: { id: deltaId } });
     assert(deltaInDb === null, "FolderDelta is completely removed from database");
-
-    // -------------------------------------------------------------------------
-    // CLEANUP
-    // -------------------------------------------------------------------------
-    console.log("\n--- [CLEANUP] ---");
-    await prisma.workspace.deleteMany({ where: { id: workspaceAId } });
-    await prisma.session.deleteMany({ where: { userId: userIdA } });
-    await prisma.user.deleteMany({ where: { id: userIdA } });
-    console.log("  🧹 Test data cleaned up");
-
-    // Graceful shutdown
-    await new Promise<void>((resolve, reject) => {
-      server.close(async (err) => {
-        if (err) return reject(err);
-        await disconnectDatabase();
-        assert(true, "Server and database gracefully shut down");
-        resolve();
-      });
-    });
   } catch (error) {
     console.error("❌ Unexpected error in concurrency audit test:", error);
     failed++;
+  } finally {
+    console.log("\n--- [CLEANUP: Tracked Fixtures] ---");
+    try {
+      await fixtures.cleanup();
+      await fixtures.verifyCleanup();
+    } catch (cleanupErr) {
+      console.error("❌ Cleanup failed:", cleanupErr);
+      failed++;
+    }
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await disconnectDatabase();
   }
 
   console.log("\n=================================================");

@@ -10,9 +10,10 @@ async function bootstrap(): Promise<void> {
     // 2. Initialize Express application
     const app = createApp();
     const PORT = env.PORT || 4000;
+    const HOST = env.HOST || "0.0.0.0";
 
     // 3. Start HTTP server
-    const server = app.listen(PORT, () => {
+    const server = app.listen(PORT, HOST, () => {
       console.log(`🚀 CodeSync API server running on http://localhost:${PORT}`);
       console.log(`📡 Health endpoint: http://localhost:${PORT}/api/health`);
       console.log(`🌍 Environment: ${env.NODE_ENV}`);

@@ -1,6 +1,7 @@
 import http from "node:http";
 import { createApp } from "../apps/api/src/app";
 import { connectDatabase, disconnectDatabase, prisma } from "../apps/api/src/config/database";
+import { assertTestDatabase, TestFixtureTracker } from "./testDbGuard";
 
 async function runFileTests() {
   console.log("=================================================");
@@ -22,6 +23,9 @@ async function runFileTests() {
 
   // Connect to DB and initialize app
   await connectDatabase();
+  await assertTestDatabase();
+
+  const fixtures = new TestFixtureTracker();
   const app = createApp();
 
   const server = http.createServer(app);
@@ -63,6 +67,7 @@ async function runFileTests() {
     });
     tokenA = regA.body?.data?.accessToken;
     userIdA = regA.body?.data?.user?.id;
+    fixtures.trackUser(userIdA);
     assert(regA.status === 201, "User A registered successfully");
 
     const regB = await request("/api/auth/register", {
@@ -72,6 +77,7 @@ async function runFileTests() {
     });
     tokenB = regB.body?.data?.accessToken;
     userIdB = regB.body?.data?.user?.id;
+    fixtures.trackUser(userIdB);
     assert(regB.status === 201, "User B registered successfully");
 
     const wsRes = await request("/api/workspaces", {
@@ -83,6 +89,7 @@ async function runFileTests() {
       body: JSON.stringify({ name: "Filesystem Workspace" }),
     });
     workspaceAId = wsRes.body?.data?.id;
+    fixtures.trackWorkspace(workspaceAId);
     assert(wsRes.status === 201, "Workspace A created successfully");
 
     // -------------------------------------------------------------------------
@@ -513,34 +520,20 @@ async function runFileTests() {
       body: JSON.stringify({ name: ".." }),
     });
     assert(dotRes.status === 400, "Filename '..' rejected with HTTP 400");
-
-    // -------------------------------------------------------------------------
-    // CLEANUP
-    // -------------------------------------------------------------------------
-    console.log("\n--- [CLEANUP] ---");
-    await prisma.workspace.deleteMany({
-      where: { id: workspaceAId },
-    });
-    await prisma.session.deleteMany({
-      where: { userId: { in: [userIdA, userIdB] } },
-    });
-    await prisma.user.deleteMany({
-      where: { id: { in: [userIdA, userIdB] } },
-    });
-    console.log("  🧹 Test data cleaned up");
-
-    // Graceful shutdown
-    await new Promise<void>((resolve, reject) => {
-      server.close(async (err) => {
-        if (err) return reject(err);
-        await disconnectDatabase();
-        assert(true, "Server and database gracefully shut down");
-        resolve();
-      });
-    });
   } catch (error) {
     console.error("❌ Unexpected error in file test:", error);
     failed++;
+  } finally {
+    console.log("\n--- [CLEANUP: Tracked Fixtures] ---");
+    try {
+      await fixtures.cleanup();
+      await fixtures.verifyCleanup();
+    } catch (cleanupErr) {
+      console.error("❌ Cleanup failed:", cleanupErr);
+      failed++;
+    }
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await disconnectDatabase();
   }
 
   console.log("\n=================================================");

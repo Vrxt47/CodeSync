@@ -53,8 +53,11 @@ export function useEditorState(props?: UseEditorStateProps) {
     isLoading: isLoadingFile,
     error: loadError,
     loadFile,
+    getFileVersion,
     reset: resetFileContent,
   } = useFileContent();
+
+  const currentVersionRef = useRef<number | null>(null);
 
   // File saving hook
   const {
@@ -66,9 +69,13 @@ export function useEditorState(props?: UseEditorStateProps) {
   } = useFileSave({
     fileId: activeFileId,
     getCurrentContent: () => currentContentRef.current,
-    onSaveSuccess: (persistedContent) => {
+    getVersion: () => currentVersionRef.current ?? -1,
+    onSaveSuccess: (persistedContent, newVersion) => {
       setSavedContent(persistedContent);
       savedContentRef.current = persistedContent;
+      if (typeof newVersion === "number") {
+        currentVersionRef.current = newVersion;
+      }
 
       const stillDirty = currentContentRef.current !== persistedContent;
       setIsDirty(stillDirty);
@@ -129,6 +136,7 @@ export function useEditorState(props?: UseEditorStateProps) {
 
       const loaded = await loadFile(fileId);
       if (loaded !== null) {
+        currentVersionRef.current = getFileVersion();
         setCurrentContent(loaded);
         setSavedContent(loaded);
         currentContentRef.current = loaded;
@@ -138,12 +146,13 @@ export function useEditorState(props?: UseEditorStateProps) {
         onDirtyChange?.(fileId, false);
       }
     },
-    [loadFile, onDirtyChange, setSaveStatus]
+    [getFileVersion, loadFile, onDirtyChange, setSaveStatus]
   );
 
   // Close active file
   const closeActiveFile = useCallback(() => {
     resetFileContent();
+    currentVersionRef.current = null;
     setActiveFileId(null);
     setActiveFileName("");
     setActiveFilePath("");

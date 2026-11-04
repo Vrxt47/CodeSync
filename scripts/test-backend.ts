@@ -1,6 +1,7 @@
 import http from "node:http";
 import { createApp } from "../apps/api/src/app";
-import { connectDatabase, disconnectDatabase } from "../apps/api/src/config/database";
+import { connectDatabase, disconnectDatabase, prisma } from "../apps/api/src/config/database";
+import { assertTestDatabase } from "./testDbGuard";
 
 async function runBackendTests() {
   console.log("=================================================");
@@ -22,6 +23,7 @@ async function runBackendTests() {
 
   // Connect to DB
   await connectDatabase();
+  await assertTestDatabase(prisma);
   const app = createApp();
 
   // Temporary route for testing validation middleware

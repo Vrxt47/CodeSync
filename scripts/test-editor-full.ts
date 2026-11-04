@@ -2,6 +2,7 @@ import http from "node:http";
 import { createApp } from "../apps/api/src/app";
 import { connectDatabase, disconnectDatabase, prisma } from "../apps/api/src/config/database";
 import { getMonacoLanguage, getLanguageDisplayName } from "../apps/web/lib/editor/languageUtils";
+import { assertTestDatabase, TestFixtureTracker } from "./testDbGuard";
 
 async function runEditorFullTests() {
   console.log("=================================================");
@@ -65,6 +66,8 @@ async function runEditorFullTests() {
   // BACKEND INTEGRATION: Full File Content Lifecycle for all 4 Languages
   // -------------------------------------------------------------------------
   await connectDatabase();
+  await assertTestDatabase(prisma);
+  const fixtures = new TestFixtureTracker(prisma);
   const app = createApp();
   const server = http.createServer(app);
   const testPort = 4106;
@@ -107,6 +110,7 @@ async function runEditorFullTests() {
     });
     ownerToken = regOwner.body?.data?.accessToken;
     ownerId = regOwner.body?.data?.user?.id;
+    if (ownerId) fixtures.trackUser(ownerId);
     assert(regOwner.status === 201, "Owner user registered");
 
     const regViewer = await request("/api/auth/register", {
@@ -116,6 +120,7 @@ async function runEditorFullTests() {
     });
     viewerToken = regViewer.body?.data?.accessToken;
     viewerId = regViewer.body?.data?.user?.id;
+    if (viewerId) fixtures.trackUser(viewerId);
     assert(regViewer.status === 201, "Viewer user registered");
 
     const regOutsider = await request("/api/auth/register", {
@@ -125,6 +130,7 @@ async function runEditorFullTests() {
     });
     outsiderToken = regOutsider.body?.data?.accessToken;
     outsiderId = regOutsider.body?.data?.user?.id;
+    if (outsiderId) fixtures.trackUser(outsiderId);
     assert(regOutsider.status === 201, "Outsider user registered");
 
     const wsRes = await request("/api/workspaces", {
@@ -136,6 +142,7 @@ async function runEditorFullTests() {
       body: JSON.stringify({ name: "Editor Multi-Language Project" }),
     });
     workspaceId = wsRes.body?.data?.id;
+    if (workspaceId) fixtures.trackWorkspace(workspaceId);
     assert(wsRes.status === 201, "Workspace created successfully");
 
     // Add viewer to workspace
@@ -209,7 +216,7 @@ async function runEditorFullTests() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${ownerToken}`,
         },
-        body: JSON.stringify({ content: tf.updatedCode }),
+        body: JSON.stringify({ content: tf.updatedCode, expectedVersion: 1 }),
       });
       assert(saveRes.status === 200, `PUT /api/files/:id returns 200 for ${tf.name}`);
       assert(
@@ -246,7 +253,7 @@ async function runEditorFullTests() {
         "Content-Type": "application/json",
         Authorization: `Bearer ${viewerToken}`,
       },
-      body: JSON.stringify({ content: "Malicious viewer edit" }),
+      body: JSON.stringify({ content: "Malicious viewer edit", expectedVersion: 2 }),
     });
     assert(viewerSaveRes.status === 403, "Viewer role rejected with 403 Forbidden on file save");
 
@@ -262,7 +269,7 @@ async function runEditorFullTests() {
         "Content-Type": "application/json",
         Authorization: `Bearer ${outsiderToken}`,
       },
-      body: JSON.stringify({ content: "Malicious outsider edit" }),
+      body: JSON.stringify({ content: "Malicious outsider edit", expectedVersion: 2 }),
     });
     assert(outsiderWriteRes.status === 403, "Outsider rejected with 403 Forbidden on file save");
 
@@ -270,7 +277,7 @@ async function runEditorFullTests() {
     const unauthRes = await request(`/api/files/${cppFileId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: "Unauthenticated edit" }),
+      body: JSON.stringify({ content: "Unauthenticated edit", expectedVersion: 2 }),
     });
     assert(unauthRes.status === 401, "Unauthenticated request rejected with 401");
 
@@ -297,7 +304,7 @@ async function runEditorFullTests() {
         "Content-Type": "application/json",
         Authorization: `Bearer ${ownerToken}`,
       },
-      body: JSON.stringify({ content: "Should not work" }),
+      body: JSON.stringify({ content: "Should not work", expectedVersion: 1 }),
     });
     assert(
       folderPutRes.status === 400 && folderPutRes.body?.code === "CANNOT_MODIFY_FOLDER",
@@ -305,15 +312,11 @@ async function runEditorFullTests() {
     );
   } finally {
     console.log("\n--- [CLEANUP] ---");
-    if (workspaceId) {
-      await prisma.file.deleteMany({ where: { workspaceId } });
-      await prisma.workspaceMember.deleteMany({ where: { workspaceId } });
-      await prisma.workspace.delete({ where: { id: workspaceId } });
-    }
-    const userIds = [ownerId, viewerId, outsiderId].filter(Boolean);
-    if (userIds.length > 0) {
-      await prisma.session.deleteMany({ where: { userId: { in: userIds } } });
-      await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+    try {
+      await fixtures.cleanup();
+      await fixtures.verifyCleanup();
+    } catch (cleanupErr) {
+      console.error("  ❌ Cleanup error:", cleanupErr);
     }
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await disconnectDatabase();

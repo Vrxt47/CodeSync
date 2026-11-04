@@ -37,6 +37,13 @@ export const moveFileSchema = z.object({
 
 export const updateFileContentSchema = z.object({
   content: z.string({ required_error: "Content must be a string" }),
+  expectedVersion: z
+    .number({
+      required_error: "expectedVersion is required for file content updates",
+      invalid_type_error: "expectedVersion must be an integer",
+    })
+    .int("expectedVersion must be an integer")
+    .min(1, "expectedVersion must be at least 1"),
 });
 
 export const workspaceIdParamSchema = z.object({

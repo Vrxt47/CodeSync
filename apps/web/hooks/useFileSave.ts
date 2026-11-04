@@ -7,7 +7,8 @@ import type { SaveStatus } from "@/lib/editor/editorTypes";
 export interface UseFileSaveOptions {
   fileId: string | null;
   getCurrentContent: () => string;
-  onSaveSuccess?: (savedContent: string) => void;
+  getVersion: () => number;
+  onSaveSuccess?: (savedContent: string, newVersion?: number) => void;
   onSaveError?: (error: Error) => void;
 }
 
@@ -27,6 +28,7 @@ export interface UseFileSaveResult {
 export function useFileSave({
   fileId,
   getCurrentContent,
+  getVersion,
   onSaveSuccess,
   onSaveError,
 }: UseFileSaveOptions): UseFileSaveResult {
@@ -48,11 +50,15 @@ export function useFileSave({
     setSaveError(null);
 
     try {
-      await fileApi.updateFileContent(fileId, contentToSave);
+      const version = getVersion();
+      if (typeof version !== "number" || version < 1) {
+        throw new Error("Cannot save file: server version is unavailable. Please reload the tab.");
+      }
+      const item = await fileApi.updateFileContent(fileId, contentToSave, version);
 
       // Verify this save request is still the latest one
       if (seq === saveSeqRef.current) {
-        onSaveSuccess?.(contentToSave);
+        onSaveSuccess?.(contentToSave, item.version);
 
         // Check whether the user typed more changes while save was in-flight
         const latestContent = getCurrentContent();
@@ -76,7 +82,7 @@ export function useFileSave({
         isSavingRef.current = false;
       }
     }
-  }, [fileId, getCurrentContent, onSaveSuccess, onSaveError]);
+  }, [fileId, getCurrentContent, getVersion, onSaveSuccess, onSaveError]);
 
   // Global Ctrl+S / Cmd+S shortcut handler
   useEffect(() => {

@@ -11,6 +11,8 @@ export interface FileNode {
   children?: FileNode[];
   content?: string;
   language?: string;
+  version?: number;
+  updatedAt?: string;
 }
 
 export type ActivityBarItem = "explorer" | "search" | "source-control" | "extensions" | "settings";
@@ -24,7 +26,11 @@ export interface EditorTab {
   language: string;
   extension?: string;
   content: string;
+  savedContent?: string;
   isDirty?: boolean;
+  isLoaded: boolean;
+  version?: number;
+  updatedAt?: string;
 }
 
 export interface IDEState {

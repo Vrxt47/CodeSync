@@ -39,6 +39,8 @@ export const IDELayout: React.FC<IDELayoutProps> = ({
     closeTab,
     updateTabContent,
     markTabSaved,
+    markTabLoaded,
+    markTabDirty,
     cursorPosition,
     setCursorPosition,
     activeLanguage,
@@ -132,7 +134,9 @@ export const IDELayout: React.FC<IDELayoutProps> = ({
             onSelectTab={setActiveTab}
             onCloseTab={closeTab}
             onUpdateTabContent={updateTabContent}
+            onTabDirtyChange={markTabDirty}
             onTabSaved={markTabSaved}
+            onTabLoaded={markTabLoaded}
             onCursorChange={setCursorPosition}
             onLanguageChange={setActiveLanguage}
             pendingTransition={pendingTransition}

@@ -1,5 +1,6 @@
 import { prisma, type Prisma } from "../../config/database";
 import { AppError } from "../../utils/AppError";
+import { fileQueue } from "../../utils/fileQueue";
 import type {
   CreateFileInput,
   CreateFolderInput,
@@ -68,6 +69,7 @@ export class FileService {
         parentId: true,
         name: true,
         type: true,
+        version: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -85,6 +87,7 @@ export class FileService {
         parentId: item.parentId,
         name: item.name,
         type: item.type,
+        version: item.version,
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
         ...(item.type === "FOLDER" ? { children: [] } : {}),
@@ -137,25 +140,31 @@ export class FileService {
    * Validates workspace membership and restricts folder reading.
    */
   public static async getFileById(fileId: string, userId: string): Promise<FileItemResponse> {
-    const file = await prisma.file.findUnique({
-      where: { id: fileId },
+    return fileQueue.enqueue(fileId, async () => {
+      const file = await prisma.file.findUnique({
+        where: { id: fileId },
+      });
+
+      if (!file) {
+        throw new AppError("File not found", 404, "FILE_NOT_FOUND");
+      }
+
+      await this.verifyWorkspacePermission(file.workspaceId, userId, false);
+
+      if (file.type !== "FILE") {
+        throw new AppError(
+          "Cannot retrieve file content for a directory",
+          400,
+          "CANNOT_OPEN_FOLDER"
+        );
+      }
+
+      return file;
     });
-
-    if (!file) {
-      throw new AppError("File not found", 404, "FILE_NOT_FOUND");
-    }
-
-    await this.verifyWorkspacePermission(file.workspaceId, userId, false);
-
-    if (file.type !== "FILE") {
-      throw new AppError("Cannot retrieve file content for a directory", 400, "CANNOT_OPEN_FOLDER");
-    }
-
-    return file;
   }
 
   /**
-   * Update a file's content.
+   * Update a file's content atomically with optimistic concurrency locking.
    * Requires write permission (EDITOR or OWNER; VIEWER is rejected with 403).
    * Rejects modification of folders with 400.
    */
@@ -164,29 +173,66 @@ export class FileService {
     userId: string,
     input: UpdateFileContentInput
   ): Promise<FileItemResponse> {
-    const file = await prisma.file.findUnique({
-      where: { id: fileId },
+    return fileQueue.enqueue(fileId, async () => {
+      const file = await prisma.file.findUnique({
+        where: { id: fileId },
+        select: { id: true, workspaceId: true, type: true },
+      });
+
+      if (!file) {
+        throw new AppError("File not found", 404, "FILE_NOT_FOUND");
+      }
+
+      await this.verifyWorkspacePermission(file.workspaceId, userId, true);
+
+      if (file.type !== "FILE") {
+        throw new AppError("Cannot save content to a directory", 400, "CANNOT_MODIFY_FOLDER");
+      }
+
+      if (typeof input.expectedVersion !== "number" || Number.isNaN(input.expectedVersion)) {
+        throw new AppError(
+          "expectedVersion is required for file content updates",
+          400,
+          "VERSION_REQUIRED"
+        );
+      }
+
+      // Atomic conditional update in a single SQL statement in PostgreSQL
+      const result = await prisma.file.updateMany({
+        where: {
+          id: fileId,
+          version: input.expectedVersion,
+        },
+        data: {
+          content: input.content,
+          version: { increment: 1 },
+          updatedAt: new Date(),
+        },
+      });
+
+      if (result.count === 0) {
+        const current = await prisma.file.findUnique({
+          where: { id: fileId },
+          select: { id: true },
+        });
+
+        if (!current) {
+          throw new AppError("File not found", 404, "FILE_NOT_FOUND");
+        }
+
+        throw new AppError(
+          "File has been modified by another user or session",
+          409,
+          "CONCURRENT_MODIFICATION"
+        );
+      }
+
+      const updated = await prisma.file.findUnique({
+        where: { id: fileId },
+      });
+
+      return updated!;
     });
-
-    if (!file) {
-      throw new AppError("File not found", 404, "FILE_NOT_FOUND");
-    }
-
-    await this.verifyWorkspacePermission(file.workspaceId, userId, true);
-
-    if (file.type !== "FILE") {
-      throw new AppError("Cannot save content to a directory", 400, "CANNOT_MODIFY_FOLDER");
-    }
-
-    const updated = await prisma.file.update({
-      where: { id: fileId },
-      data: {
-        content: input.content,
-        updatedAt: new Date(),
-      },
-    });
-
-    return updated;
   }
 
   /**

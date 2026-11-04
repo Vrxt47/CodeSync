@@ -1,8 +1,33 @@
-import dotenv from "dotenv";
+import fs from "node:fs";
 import path from "node:path";
 
-// Load root .env
-dotenv.config({ path: path.resolve(__dirname, "../.env") });
+// Explicitly load root .env with zero external dependencies
+function loadRootDevEnv(): void {
+  const envPath = path.resolve(__dirname, "../.env");
+  if (!fs.existsSync(envPath)) {
+    throw new Error(`❌ FATAL: Root .env file not found at ${envPath}`);
+  }
+
+  const content = fs.readFileSync(envPath, "utf-8");
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eqIdx = trimmed.indexOf("=");
+    if (eqIdx !== -1) {
+      const key = trimmed.slice(0, eqIdx).trim();
+      let val = trimmed.slice(eqIdx + 1).trim();
+      if (
+        (val.startsWith('"') && val.endsWith('"')) ||
+        (val.startsWith("'") && val.endsWith("'"))
+      ) {
+        val = val.slice(1, -1);
+      }
+      process.env[key] = val;
+    }
+  }
+}
+
+loadRootDevEnv();
 
 import { prisma } from "../packages/database/src";
 

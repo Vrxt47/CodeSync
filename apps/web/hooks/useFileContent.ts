@@ -7,9 +7,11 @@ import type { FileSystemItem } from "@/types/filesystem";
 export interface UseFileContentResult {
   file: FileSystemItem | null;
   content: string;
+  version: number | null;
   isLoading: boolean;
   error: string | null;
   loadFile: (fileId: string) => Promise<string | null>;
+  getFileVersion: () => number | null;
   reset: () => void;
 }
 
@@ -21,10 +23,12 @@ export interface UseFileContentResult {
 export function useFileContent(): UseFileContentResult {
   const [file, setFile] = useState<FileSystemItem | null>(null);
   const [content, setContent] = useState<string>("");
+  const [version, setVersion] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
   const requestSeqRef = useRef<number>(0);
+  const versionRef = useRef<number | null>(null);
 
   const loadFile = useCallback(async (fileId: string): Promise<string | null> => {
     const seq = ++requestSeqRef.current;
@@ -40,6 +44,8 @@ export function useFileContent(): UseFileContentResult {
       }
 
       const fileContent = item.content ?? "";
+      versionRef.current = item.version;
+      setVersion(item.version);
       setFile(item);
       setContent(fileContent);
       return fileContent;
@@ -57,8 +63,14 @@ export function useFileContent(): UseFileContentResult {
     }
   }, []);
 
+  const getFileVersion = useCallback((): number | null => {
+    return versionRef.current;
+  }, []);
+
   const reset = useCallback(() => {
     requestSeqRef.current++;
+    versionRef.current = null;
+    setVersion(null);
     setFile(null);
     setContent("");
     setIsLoading(false);
@@ -68,9 +80,11 @@ export function useFileContent(): UseFileContentResult {
   return {
     file,
     content,
+    version,
     isLoading,
     error,
     loadFile,
+    getFileVersion,
     reset,
   };
 }

@@ -1,6 +1,7 @@
 import http from "node:http";
 import { createApp } from "../apps/api/src/app";
 import { connectDatabase, disconnectDatabase, prisma } from "../apps/api/src/config/database";
+import { assertTestDatabase, TestFixtureTracker } from "./testDbGuard";
 
 async function runWorkspaceTests() {
   console.log("=================================================");
@@ -22,10 +23,13 @@ async function runWorkspaceTests() {
 
   // Connect to DB and initialize app
   await connectDatabase();
+  await assertTestDatabase();
+
+  const fixtures = new TestFixtureTracker();
   const app = createApp();
 
   const server = http.createServer(app);
-  const testPort = 4099;
+  const testPort = 4100;
 
   await new Promise<void>((resolve) => {
     server.listen(testPort, () => {
@@ -69,6 +73,7 @@ async function runWorkspaceTests() {
     assert(regA.status === 201, "User A registered successfully");
     tokenA = regA.body?.data?.accessToken;
     userIdA = regA.body?.data?.user?.id;
+    fixtures.trackUser(userIdA);
 
     const regB = await request("/api/auth/register", {
       method: "POST",
@@ -82,6 +87,7 @@ async function runWorkspaceTests() {
     assert(regB.status === 201, "User B registered successfully");
     tokenB = regB.body?.data?.accessToken;
     userIdB = regB.body?.data?.user?.id;
+    fixtures.trackUser(userIdB);
 
     // -------------------------------------------------------------------------
     // TEST 1: User A Creates Workspace (POST /api/workspaces)
@@ -109,6 +115,7 @@ async function runWorkspaceTests() {
     assert(createRes.body?.data?.memberCount === 1, "Member count is 1");
     assert(createRes.body?.data?.owner?.email === userAEmail, "Owner email matches User A");
     workspaceAId = createRes.body?.data?.id;
+    fixtures.trackWorkspace(workspaceAId);
 
     // Verify DB records
     const memberInDb = await prisma.workspaceMember.findUnique({
@@ -164,6 +171,7 @@ async function runWorkspaceTests() {
     });
     assert(createBRes.status === 201, "User B creates workspace Beta");
     workspaceBId = createBRes.body?.data?.id;
+    fixtures.trackWorkspace(workspaceBId);
 
     const listBAfter = await request("/api/workspaces", {
       method: "GET",
@@ -223,7 +231,7 @@ async function runWorkspaceTests() {
     // -------------------------------------------------------------------------
     console.log("\n--- [TEST 5: Workspace Search Query] ---");
     // User A creates another workspace for search testing
-    await request("/api/workspaces", {
+    const createGammaRes = await request("/api/workspaces", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -234,6 +242,7 @@ async function runWorkspaceTests() {
         description: "Microservice repository",
       }),
     });
+    fixtures.trackWorkspace(createGammaRes.body?.data?.id);
 
     const searchResAlpha = await request("/api/workspaces?search=alpha", {
       method: "GET",
@@ -380,34 +389,20 @@ async function runWorkspaceTests() {
       headers: { Authorization: `Bearer ${tokenA}` },
     });
     assert(badUuidRes.status === 400, "Invalid workspace UUID rejected with HTTP 400");
-
-    // -------------------------------------------------------------------------
-    // CLEANUP
-    // -------------------------------------------------------------------------
-    console.log("\n--- [CLEANUP] ---");
-    await prisma.workspace.deleteMany({
-      where: { ownerId: { in: [userIdA, userIdB] } },
-    });
-    await prisma.session.deleteMany({
-      where: { userId: { in: [userIdA, userIdB] } },
-    });
-    await prisma.user.deleteMany({
-      where: { id: { in: [userIdA, userIdB] } },
-    });
-    console.log("  🧹 Test users and residual workspaces cleaned up");
-
-    // Graceful shutdown
-    await new Promise<void>((resolve, reject) => {
-      server.close(async (err) => {
-        if (err) return reject(err);
-        await disconnectDatabase();
-        assert(true, "Server and database gracefully shut down");
-        resolve();
-      });
-    });
   } catch (error) {
     console.error("❌ Unexpected error in workspace test:", error);
     failed++;
+  } finally {
+    console.log("\n--- [CLEANUP: Tracked Fixtures] ---");
+    try {
+      await fixtures.cleanup();
+      await fixtures.verifyCleanup();
+    } catch (cleanupErr) {
+      console.error("❌ Cleanup failed:", cleanupErr);
+      failed++;
+    }
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    await disconnectDatabase();
   }
 
   console.log("\n=================================================");

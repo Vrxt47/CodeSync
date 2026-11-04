@@ -6,7 +6,11 @@ import type { OnMount, OnChange } from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
 import { defaultEditorOptions } from "@/lib/editor/editorConfig";
 import { registerAllCompletionProviders } from "@/lib/editor/completion";
-import type { EditorTheme, SupportedMonacoLanguage } from "@/lib/editor/editorTypes";
+import type {
+  EditorTheme,
+  EditorSettings,
+  SupportedMonacoLanguage,
+} from "@/lib/editor/editorTypes";
 import { Loader2 } from "lucide-react";
 
 // Dynamically import Monaco to prevent any browser API evaluation during SSR
@@ -24,8 +28,11 @@ interface CodeEditorProps {
   value: string;
   language: SupportedMonacoLanguage;
   theme: EditorTheme;
+  path?: string;
+  settings?: EditorSettings;
   onChange: (value: string) => void;
   onCursorChange?: (lineNumber: number, column: number) => void;
+  onEditorMount?: (editor: Monaco.editor.IStandaloneCodeEditor, monaco: typeof Monaco) => void;
   isLoading?: boolean;
   readOnly?: boolean;
 }
@@ -34,8 +41,11 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
   value,
   language,
   theme,
+  path,
+  settings,
   onChange,
   onCursorChange,
+  onEditorMount,
   isLoading = false,
   readOnly = false,
 }) => {
@@ -59,10 +69,12 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
         onCursorChange?.(e.position.lineNumber, e.position.column);
       });
 
+      onEditorMount?.(editor, monaco);
+
       // Focus editor on mount
       editor.focus();
     },
-    [onCursorChange]
+    [onCursorChange, onEditorMount]
   );
 
   const handleContentChange: OnChange = useCallback(
@@ -81,19 +93,28 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
     );
   }
 
+  const activeTheme = settings?.theme ?? theme;
+
   return (
     <div className="flex-1 w-full h-full overflow-hidden relative min-h-0 min-w-0">
       <MonacoEditorComponent
         height="100%"
         width="100%"
+        path={path}
         language={language}
-        theme={theme}
+        theme={activeTheme}
         value={value}
         onChange={handleContentChange}
         onMount={handleEditorMount}
         options={{
           ...defaultEditorOptions,
           readOnly,
+          fontSize: settings?.fontSize ?? 14,
+          tabSize: settings?.tabSize ?? 4,
+          wordWrap: settings?.wordWrap ?? "on",
+          minimap: {
+            enabled: settings?.minimap ?? true,
+          },
         }}
         className="monaco-editor-container"
       />

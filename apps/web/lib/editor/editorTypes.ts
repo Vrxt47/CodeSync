@@ -1,4 +1,12 @@
-export type EditorTheme = "vs-dark" | "vs";
+export type EditorTheme = "vs-dark" | "vs" | "hc-black";
+
+export interface EditorSettings {
+  fontSize: number;
+  tabSize: 2 | 4 | 8;
+  wordWrap: "on" | "off";
+  minimap: boolean;
+  theme: EditorTheme;
+}
 
 export type SaveStatus = "saved" | "saving" | "unsaved" | "error";
 

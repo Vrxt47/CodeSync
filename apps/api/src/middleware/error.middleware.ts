@@ -50,6 +50,16 @@ export function errorMiddleware(
     return;
   }
 
+  // 3. Body Parser Payload Too Large
+  if ((err as any)?.type === "entity.too.large") {
+    res.status(413).json({
+      success: false,
+      message: "Request payload exceeds allowed limit",
+      code: "PAYLOAD_TOO_LARGE",
+    });
+    return;
+  }
+
   // 3. Prisma Known Request Errors
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
     switch (err.code) {

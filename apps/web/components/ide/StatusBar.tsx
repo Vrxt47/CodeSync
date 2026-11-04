@@ -55,6 +55,17 @@ export const StatusBar: React.FC<StatusBarProps> = ({
             <AlertTriangle className="h-3 w-3" /> 0
           </span>
         </div>
+
+        {/* Dirty / Unsaved changes indicator */}
+        {activeTab?.isDirty && (
+          <div
+            title="Unsaved changes in active file"
+            className="flex items-center gap-1.5 bg-black/15 px-1.5 py-0.5 rounded transition-colors text-amber-200"
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-amber-300 animate-pulse" />
+            <span>Unsaved</span>
+          </div>
+        )}
       </div>
 
       {/* Right items */}

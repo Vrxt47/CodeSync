@@ -1,6 +1,7 @@
 import http from "node:http";
 import { createApp } from "../apps/api/src/app";
 import { connectDatabase, disconnectDatabase, prisma } from "../apps/api/src/config/database";
+import { assertTestDatabase, TestFixtureTracker } from "./testDbGuard";
 
 async function runEditorBackendTests() {
   console.log("=================================================");
@@ -21,6 +22,9 @@ async function runEditorBackendTests() {
   }
 
   await connectDatabase();
+  await assertTestDatabase();
+
+  const fixtures = new TestFixtureTracker();
   const app = createApp();
   const server = http.createServer(app);
   const testPort = 4105;
@@ -66,6 +70,7 @@ async function runEditorBackendTests() {
     });
     ownerToken = regOwner.body?.data?.accessToken;
     ownerId = regOwner.body?.data?.user?.id;
+    fixtures.trackUser(ownerId);
     assert(regOwner.status === 201, "Owner registered");
 
     const regViewer = await request("/api/auth/register", {
@@ -75,6 +80,7 @@ async function runEditorBackendTests() {
     });
     viewerToken = regViewer.body?.data?.accessToken;
     viewerId = regViewer.body?.data?.user?.id;
+    fixtures.trackUser(viewerId);
     assert(regViewer.status === 201, "Viewer registered");
 
     const regOutsider = await request("/api/auth/register", {
@@ -84,6 +90,7 @@ async function runEditorBackendTests() {
     });
     outsiderToken = regOutsider.body?.data?.accessToken;
     outsiderId = regOutsider.body?.data?.user?.id;
+    fixtures.trackUser(outsiderId);
     assert(regOutsider.status === 201, "Outsider registered");
 
     const wsRes = await request("/api/workspaces", {
@@ -95,6 +102,7 @@ async function runEditorBackendTests() {
       body: JSON.stringify({ name: "Editor Test Workspace" }),
     });
     workspaceId = wsRes.body?.data?.id;
+    fixtures.trackWorkspace(workspaceId);
     assert(wsRes.status === 201, "Workspace created");
 
     // Add viewer to workspace
@@ -178,7 +186,7 @@ async function runEditorBackendTests() {
         "Content-Type": "application/json",
         Authorization: `Bearer ${ownerToken}`,
       },
-      body: JSON.stringify({ content: updatedContent }),
+      body: JSON.stringify({ content: updatedContent, expectedVersion: 1 }),
     });
     assert(saveRes.status === 200, "Owner can save updated file content (200 OK)");
     assert(saveRes.body?.data?.content === updatedContent, "Response returns updated content");
@@ -195,7 +203,7 @@ async function runEditorBackendTests() {
         "Content-Type": "application/json",
         Authorization: `Bearer ${ownerToken}`,
       },
-      body: JSON.stringify({ content: aliasContent }),
+      body: JSON.stringify({ content: aliasContent, expectedVersion: 2 }),
     });
     assert(aliasRes.status === 200, "Alias route PUT /api/files/:fileId/content works");
 
@@ -210,7 +218,7 @@ async function runEditorBackendTests() {
         "Content-Type": "application/json",
         Authorization: `Bearer ${viewerToken}`,
       },
-      body: JSON.stringify({ content: "Malicious edit" }),
+      body: JSON.stringify({ content: "Malicious edit", expectedVersion: 3 }),
     });
     assert(viewerSaveRes.status === 403, "Viewer role cannot save file content (403 Forbidden)");
 
@@ -221,7 +229,7 @@ async function runEditorBackendTests() {
         "Content-Type": "application/json",
         Authorization: `Bearer ${outsiderToken}`,
       },
-      body: JSON.stringify({ content: "Malicious edit" }),
+      body: JSON.stringify({ content: "Malicious edit", expectedVersion: 3 }),
     });
     assert(outsiderSaveRes.status === 403, "Outsider cannot save file content (403 Forbidden)");
 
@@ -232,7 +240,7 @@ async function runEditorBackendTests() {
         "Content-Type": "application/json",
         Authorization: `Bearer ${ownerToken}`,
       },
-      body: JSON.stringify({ content: "Some content" }),
+      body: JSON.stringify({ content: "Some content", expectedVersion: 1 }),
     });
     assert(folderSaveRes.status === 400, "Cannot save content to a folder (400 Bad Request)");
     assert(
@@ -247,7 +255,7 @@ async function runEditorBackendTests() {
         "Content-Type": "application/json",
         Authorization: `Bearer ${ownerToken}`,
       },
-      body: JSON.stringify({ content: "test" }),
+      body: JSON.stringify({ content: "test", expectedVersion: 1 }),
     });
     assert(notFoundRes.status === 404, "Non-existent file returns 404 Not Found");
 
@@ -258,16 +266,13 @@ async function runEditorBackendTests() {
     });
     assert(badUuidRes.status === 400, "Invalid UUID parameter returns 400");
   } finally {
-    console.log("\n--- [CLEANUP] ---");
-    if (workspaceId) {
-      await prisma.file.deleteMany({ where: { workspaceId } });
-      await prisma.workspaceMember.deleteMany({ where: { workspaceId } });
-      await prisma.workspace.delete({ where: { id: workspaceId } });
-    }
-    const userIds = [ownerId, viewerId, outsiderId].filter(Boolean);
-    if (userIds.length > 0) {
-      await prisma.session.deleteMany({ where: { userId: { in: userIds } } });
-      await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+    console.log("\n--- [CLEANUP: Tracked Fixtures] ---");
+    try {
+      await fixtures.cleanup();
+      await fixtures.verifyCleanup();
+    } catch (cleanupErr) {
+      console.error("❌ Cleanup failed:", cleanupErr);
+      failed++;
     }
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await disconnectDatabase();

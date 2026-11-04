@@ -26,6 +26,7 @@ export interface FileItemResponse {
   name: string;
   type: FileType;
   content?: string;
+  version: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -36,6 +37,7 @@ export interface FileTreeNode {
   parentId: string | null;
   name: string;
   type: FileType;
+  version: number;
   createdAt: Date;
   updatedAt: Date;
   children?: FileTreeNode[];

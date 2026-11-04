@@ -37,4 +37,3 @@ export interface MinimalTextModel {
     endColumn: number;
   };
 }
-

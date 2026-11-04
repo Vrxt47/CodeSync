@@ -3,13 +3,14 @@ import path from "node:path";
 import dotenv from "dotenv";
 import { z } from "zod";
 
-// Automatically locate and load the root .env file by traversing upwards
+// Automatically locate and load the root .env or .env.test file by traversing upwards
 function loadRootEnv(): void {
+  const targetEnvFile = process.env.NODE_ENV === "test" ? ".env.test" : ".env";
   const startDirs = [process.cwd(), __dirname];
   for (const startDir of startDirs) {
     let currentDir = startDir;
     while (currentDir && currentDir !== path.parse(currentDir).root) {
-      const candidateEnv = path.join(currentDir, ".env");
+      const candidateEnv = path.join(currentDir, targetEnvFile);
       if (fs.existsSync(candidateEnv)) {
         dotenv.config({ path: candidateEnv });
         return;
@@ -25,6 +26,7 @@ loadRootEnv();
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().default(4000),
+  HOST: z.string().default("0.0.0.0"),
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   CLIENT_URL: z.string().default(process.env.CORS_ORIGIN || "http://localhost:3000"),
   CORS_ORIGIN: z.string().default(process.env.CLIENT_URL || "http://localhost:3000"),

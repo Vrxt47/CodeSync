@@ -1,6 +1,7 @@
 import { createApp } from "../apps/api/src/app";
 import { connectDatabase, disconnectDatabase, prisma } from "../apps/api/src/config/database";
 import http from "node:http";
+import { assertTestDatabase, TestFixtureTracker } from "./testDbGuard";
 
 async function runEntryFlowTests() {
   console.log("=================================================");
@@ -21,6 +22,8 @@ async function runEntryFlowTests() {
   }
 
   await connectDatabase();
+  await assertTestDatabase(prisma);
+  const fixtures = new TestFixtureTracker(prisma);
   const app = createApp();
   const server = http.createServer(app);
   const testPort = 4103;
@@ -81,6 +84,7 @@ async function runEntryFlowTests() {
     });
     tokenA = regA.body?.data?.accessToken;
     userIdA = regA.body?.data?.user?.id;
+    if (userIdA) fixtures.trackUser(userIdA);
     assert(regA.status === 201, "User A registered successfully");
     assert(!!tokenA, "Access token received for User A");
 
@@ -107,6 +111,7 @@ async function runEntryFlowTests() {
       body: JSON.stringify({ name: "Alpha Codebase", description: "Alpha's private project" }),
     });
     workspaceAId = createWs.body?.data?.id;
+    if (workspaceAId) fixtures.trackWorkspace(workspaceAId);
     assert(createWs.status === 201, "Workspace created successfully");
     assert(createWs.body?.data?.name === "Alpha Codebase", "Workspace name is correct");
 
@@ -169,6 +174,7 @@ async function runEntryFlowTests() {
     });
     tokenB = regB.body?.data?.accessToken;
     userIdB = regB.body?.data?.user?.id;
+    if (userIdB) fixtures.trackUser(userIdB);
     assert(regB.status === 201, "User B registered successfully");
 
     const listB = await request("/api/workspaces", {
@@ -210,18 +216,11 @@ async function runEntryFlowTests() {
   } finally {
     // CLEANUP
     console.log("\n--- [CLEANUP] ---");
-    if (workspaceAId) {
-      await prisma.file.deleteMany({ where: { workspaceId: workspaceAId } });
-      await prisma.workspaceMember.deleteMany({ where: { workspaceId: workspaceAId } });
-      await prisma.workspace.delete({ where: { id: workspaceAId } });
-    }
-    if (userIdA) {
-      await prisma.session.deleteMany({ where: { userId: userIdA } });
-      await prisma.user.delete({ where: { id: userIdA } });
-    }
-    if (userIdB) {
-      await prisma.session.deleteMany({ where: { userId: userIdB } });
-      await prisma.user.delete({ where: { id: userIdB } });
+    try {
+      await fixtures.cleanup();
+      await fixtures.verifyCleanup();
+    } catch (cleanupErr) {
+      console.error("  ❌ Cleanup error:", cleanupErr);
     }
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await disconnectDatabase();

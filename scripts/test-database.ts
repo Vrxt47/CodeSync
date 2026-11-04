@@ -1,4 +1,5 @@
 import { prisma, WorkspaceRole, FileType, ExecutionStatus, Prisma } from "../packages/database/src";
+import { assertTestDatabase, TestFixtureTracker } from "./testDbGuard";
 
 async function runDatabaseTests() {
   console.log("=================================================");
@@ -18,6 +19,9 @@ async function runDatabaseTests() {
     }
   }
 
+  await assertTestDatabase();
+  const fixtures = new TestFixtureTracker();
+
   try {
     // -------------------------------------------------------------------------
     // TEST 1: User
@@ -32,6 +36,7 @@ async function runDatabaseTests() {
         avatar: "https://example.com/avatar.png",
       },
     });
+    fixtures.trackUser(user1.id);
 
     assert(
       Boolean(user1.id && user1.createdAt && user1.updatedAt),
@@ -67,6 +72,7 @@ async function runDatabaseTests() {
       },
       include: { owner: true },
     });
+    fixtures.trackWorkspace(workspace1.id);
 
     assert(workspace1.owner.id === user1.id, "Workspace created with valid owner relation");
 
@@ -100,6 +106,7 @@ async function runDatabaseTests() {
         passwordHash: "$2a$10$FakeHash",
       },
     });
+    fixtures.trackUser(user2.id);
 
     const memberOwner = await prisma.workspaceMember.create({
       data: {
@@ -240,6 +247,7 @@ async function runDatabaseTests() {
         ownerId: user1.id,
       },
     });
+    fixtures.trackWorkspace(workspace2.id);
 
     let crossWorkspaceParentRejected = false;
     try {
@@ -445,20 +453,18 @@ async function runDatabaseTests() {
       duplicateVersionRejected,
       "Duplicate snapshot version rejected by [documentId, version] compound unique (P2002)"
     );
-
-    // -------------------------------------------------------------------------
-    // Clean up test data
-    // -------------------------------------------------------------------------
-    console.log("\n--- [CLEANUP] ---");
-    await prisma.workspace.delete({ where: { id: workspace2.id } });
-    await prisma.workspace.delete({ where: { id: workspace1.id } }); // Cascades to members, files, snapshots, messages, executions, activities
-    await prisma.user.delete({ where: { id: user2.id } });
-    await prisma.user.delete({ where: { id: user1.id } });
-    console.log("🧹 Test records cleaned up successfully.");
   } catch (error) {
     console.error("❌ Unexpected test runner error:", error);
     failed++;
   } finally {
+    console.log("\n--- [CLEANUP: Tracked Fixtures] ---");
+    try {
+      await fixtures.cleanup();
+      await fixtures.verifyCleanup();
+    } catch (cleanupErr) {
+      console.error("❌ Cleanup failed:", cleanupErr);
+      failed++;
+    }
     await prisma.$disconnect();
   }
 

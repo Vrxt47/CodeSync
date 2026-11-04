@@ -18,6 +18,8 @@
     "db:push": "dotenv -e ../../.env -e .env -- prisma db push",
     "db:migrate": "dotenv -e ../../.env -e .env -- prisma migrate dev",
     "db:deploy": "dotenv -e ../../.env -e .env -- prisma migrate deploy",
+    "db:test:deploy": "node ../../scripts/prisma-test.js migrate deploy",
+    "db:test:status": "node ../../scripts/prisma-test.js migrate status",
     "db:seed": "dotenv -e ../../.env -e .env -- tsx prisma/seed.ts",
     "db:studio": "dotenv -e ../../.env -e .env -- prisma studio",
     "typecheck": "tsc --noEmit"

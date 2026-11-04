@@ -15,7 +15,9 @@ interface EditorWorkspaceProps {
   onSelectTab: (tabId: string) => void;
   onCloseTab: (tabId: string, e: React.MouseEvent) => void;
   onUpdateTabContent?: (tabId: string, content: string, isDirty: boolean) => void;
-  onTabSaved?: (tabId: string, savedContent: string) => void;
+  onTabDirtyChange?: (tabId: string, isDirty: boolean) => void;
+  onTabSaved?: (tabId: string, savedContent: string, updatedAt?: string, version?: number) => void;
+  onTabLoaded?: (tabId: string, content: string, updatedAt?: string, version?: number) => void;
   onCursorChange?: (cursor: CursorPosition) => void;
   onLanguageChange?: (language: string) => void;
   pendingTransition?: {
@@ -34,7 +36,9 @@ export const EditorWorkspace: React.FC<EditorWorkspaceProps> = ({
   onSelectTab,
   onCloseTab,
   onUpdateTabContent,
+  onTabDirtyChange,
   onTabSaved,
+  onTabLoaded,
   onCursorChange,
   onLanguageChange,
   pendingTransition,
@@ -55,9 +59,12 @@ export const EditorWorkspace: React.FC<EditorWorkspaceProps> = ({
       {activeTab ? (
         <EditorContainer
           workspaceName={workspaceName}
+          tabs={tabs}
           activeTab={activeTab}
           onUpdateTabContent={onUpdateTabContent}
+          onTabDirtyChange={onTabDirtyChange}
           onTabSaved={onTabSaved}
+          onTabLoaded={onTabLoaded}
           onCursorChange={onCursorChange}
           onLanguageChange={onLanguageChange}
           pendingTransition={pendingTransition}

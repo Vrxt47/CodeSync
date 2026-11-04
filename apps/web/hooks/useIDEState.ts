@@ -5,6 +5,7 @@ import type { ActivityBarItem, BottomPanelTab, EditorTab, FileNode } from "@/typ
 import type { FileTreeNode } from "@/types/filesystem";
 import { fileApi } from "@/lib/fileApi";
 import { getExtensionFromName, getLanguageFromExtension } from "@/lib/languageUtils";
+import { getStoredTabsState, saveTabsState } from "@/lib/editor/tabStorage";
 
 export interface UseIDEStateOptions {
   workspaceId?: string;
@@ -25,6 +26,8 @@ function convertTreeNodeToFileNode(node: FileTreeNode, parentPath = ""): FileNod
     workspaceId: node.workspaceId,
     extension: ext,
     language: lang,
+    version: node.version,
+    updatedAt: node.updatedAt,
     children: node.children
       ? node.children.map((child) => convertTreeNodeToFileNode(child, currentPath))
       : undefined,
@@ -93,6 +96,7 @@ export function useIDEState(options?: UseIDEStateOptions) {
 
   const isMountedRef = useRef(true);
   const requestSeqRef = useRef(0);
+  const isTabsRestoredRef = useRef(false);
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -122,6 +126,39 @@ export function useIDEState(options?: UseIDEStateOptions) {
           .filter((item) => item.type === "folder" || (item.type as string) === "FOLDER")
           .map((item) => item.id);
       });
+
+      // Restore recently opened tabs from localStorage once directory tree is loaded
+      if (!isTabsRestoredRef.current) {
+        isTabsRestoredRef.current = true;
+        const stored = getStoredTabsState(workspaceId);
+        if (stored && stored.openFileIds.length > 0) {
+          const restoredTabs: EditorTab[] = [];
+          for (const fileId of stored.openFileIds) {
+            const node = findNodeById(convertedTree, fileId);
+            if (node && (node.type === "file" || (node.type as string) === "FILE")) {
+              restoredTabs.push({
+                id: node.id,
+                name: node.name,
+                path: node.path,
+                extension: node.extension,
+                language: node.language || "Plain Text",
+                content: "",
+                savedContent: undefined,
+                isLoaded: false,
+                isDirty: false,
+              });
+            }
+          }
+          if (restoredTabs.length > 0) {
+            setOpenTabs(restoredTabs);
+            const firstTab = restoredTabs[0];
+            const activeExists = restoredTabs.some((t) => t.id === stored.activeFileId);
+            const nextActive = (activeExists ? stored.activeFileId : firstTab?.id) ?? null;
+            setActiveTabId(nextActive);
+            setSelectedFileId(nextActive);
+          }
+        }
+      }
     } catch (err: unknown) {
       if (!isMountedRef.current || seq !== requestSeqRef.current) return;
       const message = err instanceof Error ? err.message : "Failed to load directory tree";
@@ -138,6 +175,17 @@ export function useIDEState(options?: UseIDEStateOptions) {
       void loadDirectoryTree();
     }
   }, [workspaceId, loadDirectoryTree]);
+
+  // Persist open tabs and active tab to localStorage on changes
+  useEffect(() => {
+    if (isTabsRestoredRef.current && workspaceId) {
+      saveTabsState(
+        workspaceId,
+        openTabs.map((t) => t.id),
+        activeTabId
+      );
+    }
+  }, [workspaceId, openTabs, activeTabId]);
 
   // Activity Bar item selection
   const setActiveActivity = useCallback(
@@ -180,19 +228,50 @@ export function useIDEState(options?: UseIDEStateOptions) {
     );
   }, []);
 
-  const markTabSaved = useCallback((tabId: string, savedContent: string) => {
-    setOpenTabs((prev) =>
-      prev.map((tab) =>
-        tab.id === tabId
-          ? {
-              ...tab,
-              content: savedContent,
-              isDirty: false,
-            }
-          : tab
-      )
-    );
+  const markTabDirty = useCallback((tabId: string, isDirty: boolean) => {
+    setOpenTabs((prev) => prev.map((tab) => (tab.id === tabId ? { ...tab, isDirty } : tab)));
   }, []);
+
+  const markTabSaved = useCallback(
+    (tabId: string, savedContent: string, updatedAt?: string, version?: number) => {
+      setOpenTabs((prev) =>
+        prev.map((tab) =>
+          tab.id === tabId
+            ? {
+                ...tab,
+                savedContent,
+                isLoaded: true,
+                isDirty: tab.content !== savedContent,
+                updatedAt: updatedAt ?? tab.updatedAt,
+                version: version ?? tab.version,
+              }
+            : tab
+        )
+      );
+    },
+    []
+  );
+
+  const markTabLoaded = useCallback(
+    (tabId: string, content: string, updatedAt?: string, version?: number) => {
+      setOpenTabs((prev) =>
+        prev.map((tab) =>
+          tab.id === tabId
+            ? {
+                ...tab,
+                content,
+                savedContent: content,
+                isLoaded: true,
+                isDirty: false,
+                updatedAt: updatedAt ?? tab.updatedAt,
+                version: version ?? tab.version,
+              }
+            : tab
+        )
+      );
+    },
+    []
+  );
 
   // Internal direct tab/file actions
   const doSelectFile = useCallback((file: FileNode) => {
@@ -203,14 +282,19 @@ export function useIDEState(options?: UseIDEStateOptions) {
       if (existing) {
         return prev;
       }
+      const isContentProvided = file.content !== undefined;
       const newTab: EditorTab = {
         id: file.id,
         name: file.name,
         path: file.path,
         extension: file.extension,
         language: file.language || "Plain Text",
-        content: file.content || "",
+        content: isContentProvided ? file.content! : "",
+        savedContent: isContentProvided ? file.content : undefined,
+        isLoaded: isContentProvided,
         isDirty: false,
+        updatedAt: file.updatedAt,
+        version: file.version,
       };
       return [...prev, newTab];
     });
@@ -218,7 +302,7 @@ export function useIDEState(options?: UseIDEStateOptions) {
     setActiveTabId(file.id);
   }, []);
 
-  // File selection with unsaved changes interception
+  // File selection: activates tab if open, opens new tab if not
   const selectFile = useCallback(
     (file: FileNode) => {
       if (file.type === "folder" || (file.type as string) === "FOLDER") {
@@ -226,17 +310,9 @@ export function useIDEState(options?: UseIDEStateOptions) {
         return;
       }
 
-      if (activeTab?.isDirty && activeTab.id !== file.id) {
-        setPendingTransition({
-          action: () => doSelectFile(file),
-          targetName: file.name,
-        });
-        return;
-      }
-
       doSelectFile(file);
     },
-    [activeTab, doSelectFile, toggleFolder]
+    [doSelectFile, toggleFolder]
   );
 
   const doCloseTab = useCallback((tabId: string) => {
@@ -275,6 +351,9 @@ export function useIDEState(options?: UseIDEStateOptions) {
 
       const tabToClose = openTabs.find((t) => t.id === tabId);
       if (tabToClose?.isDirty) {
+        // Activate the tab being closed so the editor and dialog reflect it
+        setActiveTabId(tabId);
+        setSelectedFileId(tabId);
         setPendingTransition({
           action: () => doCloseTab(tabId),
           targetName: tabToClose.name,
@@ -294,18 +373,9 @@ export function useIDEState(options?: UseIDEStateOptions) {
 
   const setActiveTab = useCallback(
     (tabId: string) => {
-      if (activeTab?.isDirty && activeTab.id !== tabId) {
-        const targetTab = openTabs.find((t) => t.id === tabId);
-        setPendingTransition({
-          action: () => doSetActiveTab(tabId),
-          targetName: targetTab?.name || "file",
-        });
-        return;
-      }
-
       doSetActiveTab(tabId);
     },
-    [activeTab, doSetActiveTab, openTabs]
+    [doSetActiveTab]
   );
 
   const cancelPendingTransition = useCallback(() => {
@@ -440,15 +510,15 @@ export function useIDEState(options?: UseIDEStateOptions) {
         await fileApi.deleteItem(fileId);
         await loadDirectoryTree();
 
-        // Close associated tabs
+        // Close associated tabs directly
         for (const id of idsToClose) {
-          closeTab(id);
+          doCloseTab(id);
         }
       } finally {
         setIsMutating(false);
       }
     },
-    [workspaceId, fileTree, loadDirectoryTree, closeTab]
+    [workspaceId, fileTree, loadDirectoryTree, doCloseTab]
   );
 
   const moveItem = useCallback(
@@ -499,6 +569,8 @@ export function useIDEState(options?: UseIDEStateOptions) {
     closeTab,
     updateTabContent,
     markTabSaved,
+    markTabLoaded,
+    markTabDirty,
     cursorPosition,
     setCursorPosition,
     activeLanguage,
