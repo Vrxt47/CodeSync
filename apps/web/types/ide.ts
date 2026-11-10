@@ -17,7 +17,7 @@ export interface FileNode {
 
 export type ActivityBarItem = "explorer" | "search" | "source-control" | "extensions" | "settings";
 
-export type BottomPanelTab = "output" | "terminal" | "problems";
+export type BottomPanelTab = "output" | "input" | "history" | "terminal" | "problems";
 
 export interface EditorTab {
   id: string;

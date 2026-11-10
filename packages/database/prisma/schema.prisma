@@ -111,6 +111,7 @@ model File {
   type        FileType
   content     String             @default("") @db.Text @map("content")
   version     Int                @default(1) @map("version")
+  yjsState    Bytes?             @map("yjs_state")
   createdAt   DateTime           @default(now()) @map("created_at")
   updatedAt   DateTime           @updatedAt @map("updated_at")
 

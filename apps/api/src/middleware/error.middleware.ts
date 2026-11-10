@@ -8,6 +8,7 @@ export interface ApiErrorPayload {
   success: false;
   message: string;
   code?: string;
+  details?: Record<string, unknown>;
   errors?: Array<{ field?: string; message: string }>;
   stack?: string;
 }
@@ -26,6 +27,9 @@ export function errorMiddleware(
       message: err.message,
       code: err.code || "APPLICATION_ERROR",
     };
+    if (err.details !== undefined) {
+      payload.details = err.details;
+    }
     if (env.NODE_ENV !== "production" && err.stack) {
       payload.stack = err.stack;
     }

@@ -9,6 +9,8 @@ interface UnsavedChangesDialogProps {
   isSaving?: boolean;
   isDiscarding?: boolean;
   errorMessage?: string;
+  isCollaborative?: boolean;
+  activeCollaboratorCount?: number;
   onSave: () => void;
   onDiscard: () => void;
   onCancel: () => void;
@@ -20,11 +22,30 @@ export const UnsavedChangesDialog: React.FC<UnsavedChangesDialogProps> = ({
   isSaving = false,
   isDiscarding = false,
   errorMessage,
+  isCollaborative = false,
+  activeCollaboratorCount = 0,
   onSave,
   onDiscard,
   onCancel,
 }) => {
   const isBusy = isSaving || isDiscarding;
+  const isMultiUserCollab = Boolean(isCollaborative && activeCollaboratorCount > 0);
+
+  const dialogTitle = isMultiUserCollab
+    ? `Save shared changes to ${fileName}?`
+    : `Do you want to save the changes you made to ${fileName}?`;
+
+  const dialogDescription = isMultiUserCollab
+    ? `This file is in an active collaborative session with ${activeCollaboratorCount} other collaborator${activeCollaboratorCount > 1 ? "s" : ""}. Edits have already been shared with the room in real time. Leaving will close your tab without forcing a database save right now.`
+    : `Your changes will be lost if you don't save them before switching or closing.`;
+
+  const discardButtonLabel = isDiscarding
+    ? isMultiUserCollab
+      ? "Leaving..."
+      : "Discarding..."
+    : isMultiUserCollab
+      ? "Leave Session"
+      : "Don't Save";
 
   // Listen for Escape key to safely cancel without discarding or saving
   useEffect(() => {
@@ -63,11 +84,9 @@ export const UnsavedChangesDialog: React.FC<UnsavedChangesDialogProps> = ({
           </div>
           <div>
             <h3 id="unsaved-changes-title" className="text-base font-semibold text-white">
-              Do you want to save the changes you made to {fileName}?
+              {dialogTitle}
             </h3>
-            <p className="text-xs text-[#858585] mt-1 leading-relaxed">
-              Your changes will be lost if you don&apos;t save them before switching or closing.
-            </p>
+            <p className="text-xs text-[#858585] mt-1 leading-relaxed">{dialogDescription}</p>
           </div>
         </div>
 
@@ -99,7 +118,7 @@ export const UnsavedChangesDialog: React.FC<UnsavedChangesDialogProps> = ({
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-[#3A3D41] hover:bg-[#4E5157] text-[#CCCCCC] transition-colors disabled:opacity-50 cursor-pointer"
           >
             {isDiscarding && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            <span>{isDiscarding ? "Discarding..." : "Don't Save"}</span>
+            <span>{discardButtonLabel}</span>
           </button>
 
           {/* Save Button */}

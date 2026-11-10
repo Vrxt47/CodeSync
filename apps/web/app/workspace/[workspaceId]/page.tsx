@@ -102,5 +102,11 @@ export default function WorkspacePage() {
     );
   }
 
-  return <IDELayout workspaceId={workspace.id} workspaceName={workspace.name} />;
+  return (
+    <IDELayout
+      workspaceId={workspace.id}
+      workspaceName={workspace.name}
+      userRole={workspace.role}
+    />
+  );
 }

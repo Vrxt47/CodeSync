@@ -34,7 +34,9 @@ interface CodeEditorProps {
   onCursorChange?: (lineNumber: number, column: number) => void;
   onEditorMount?: (editor: Monaco.editor.IStandaloneCodeEditor, monaco: typeof Monaco) => void;
   isLoading?: boolean;
+  loadingMessage?: string;
   readOnly?: boolean;
+  isCollaborative?: boolean;
 }
 
 export const CodeEditor: React.FC<CodeEditorProps> = ({
@@ -47,7 +49,9 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
   onCursorChange,
   onEditorMount,
   isLoading = false,
+  loadingMessage = "Loading file content...",
   readOnly = false,
+  isCollaborative = false,
 }) => {
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
 
@@ -84,26 +88,23 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
     [onChange]
   );
 
-  if (isLoading) {
-    return (
-      <div className="flex-1 w-full h-full flex flex-col items-center justify-center bg-[#1E1E1E] text-[#858585] gap-3 select-none">
-        <Loader2 className="h-6 w-6 animate-spin text-[#007ACC]" />
-        <span className="text-xs">Loading file content...</span>
-      </div>
-    );
-  }
-
   const activeTheme = settings?.theme ?? theme;
 
   return (
     <div className="flex-1 w-full h-full overflow-hidden relative min-h-0 min-w-0">
+      {isLoading && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-[#1E1E1E] text-[#858585] gap-3 select-none">
+          <Loader2 className="h-6 w-6 animate-spin text-[#007ACC]" />
+          <span className="text-xs">{loadingMessage}</span>
+        </div>
+      )}
       <MonacoEditorComponent
         height="100%"
         width="100%"
         path={path}
         language={language}
         theme={activeTheme}
-        value={value}
+        value={isCollaborative ? undefined : value}
         onChange={handleContentChange}
         onMount={handleEditorMount}
         options={{

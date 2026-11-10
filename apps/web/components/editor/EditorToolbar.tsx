@@ -3,6 +3,7 @@
 import React from "react";
 import {
   Save,
+  Play,
   Check,
   Loader2,
   AlertCircle,
@@ -31,6 +32,9 @@ interface EditorToolbarProps {
   onSave: () => void;
   onRetrySave?: () => void;
   onFormat?: () => void;
+  onRun?: () => void;
+  isExecuting?: boolean;
+  isExecutable?: boolean;
   onOpenSettings?: () => void;
   onToggleTheme: () => void;
 }
@@ -49,6 +53,9 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   onSave,
   onRetrySave,
   onFormat,
+  onRun,
+  isExecuting = false,
+  isExecutable = true,
   onOpenSettings,
   onToggleTheme,
 }) => {
@@ -176,6 +183,47 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             Ctrl+S
           </kbd>
         </button>
+
+        {/* Run Code Button */}
+        {onRun && (
+          <button
+            onClick={onRun}
+            disabled={isExecuting || !isExecutable}
+            title={
+              !isExecutable
+                ? "Execution is only supported for JavaScript, Python, C++, and Java"
+                : "Run Code (Ctrl+Enter / Cmd+Enter)"
+            }
+            className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded transition-colors disabled:opacity-50 select-none ${
+              isExecuting
+                ? "bg-[#0E639C]/60 text-white cursor-wait"
+                : isExecutable
+                  ? "bg-[#0E639C] hover:bg-[#1177BB] text-white shadow-sm cursor-pointer"
+                  : isDark
+                    ? "bg-[#2A2D2E] text-[#858585] cursor-not-allowed"
+                    : "bg-[#E0E0E0] text-[#858585] cursor-not-allowed"
+            }`}
+            aria-label="Run Code"
+          >
+            {isExecuting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Play className="h-3.5 w-3.5 fill-current" />
+            )}
+            <span>{isExecuting ? "Running..." : "Run"}</span>
+            <kbd
+              className={`hidden md:inline-block text-[10px] px-1 py-0.2 rounded border ${
+                isExecutable
+                  ? "border-white/30 text-white/80"
+                  : isDark
+                    ? "border-[#404040] text-[#858585]"
+                    : "border-[#B0B0B0] text-[#666666]"
+              }`}
+            >
+              Ctrl+Enter
+            </kbd>
+          </button>
+        )}
 
         {/* Format Document Button */}
         {onFormat && (

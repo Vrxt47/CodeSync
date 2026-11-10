@@ -1,4 +1,5 @@
 import type { SupportedMonacoLanguage, LanguageDefinition } from "./editorTypes";
+import type { SupportedLanguage } from "@/services/execution";
 
 /**
  * Maps a file extension or filename to a supported Monaco language identifier.
@@ -73,4 +74,11 @@ export function getLanguageDefinition(fileNameOrExt?: string): LanguageDefinitio
     tabSize: 4,
     insertSpaces: true,
   };
+}
+
+/**
+ * Validates whether a given language identifier is executable in CodeSync sandbox.
+ */
+export function isExecutableLanguage(lang?: string): lang is SupportedLanguage {
+  return lang === "cpp" || lang === "python" || lang === "javascript" || lang === "java";
 }

@@ -4,6 +4,7 @@ import { useRef, useCallback, useState, useEffect } from "react";
 import { fileApi } from "@/lib/fileApi";
 import { ApiError } from "@/lib/apiClient";
 import type { SaveStatus } from "@/lib/editor/editorTypes";
+import { classifyHttpConflict } from "@/lib/editor/save-reconciliation";
 
 export interface FileSaveRecord {
   fileId: string;
@@ -14,6 +15,7 @@ export interface FileSaveRecord {
   isSaving: boolean;
   retryCount: number;
   errorMessage?: string;
+  conflictBlocked?: boolean;
   isInitialized?: boolean;
   lastPersistedUpdatedAt?: string;
   lastPersistedVersion?: number;
@@ -96,22 +98,116 @@ export function useAutosave(props?: UseAutosaveProps) {
     ) => {
       const existing = recordsRef.current.get(fileId);
       const isDirty = content !== savedContent;
+      const isSaving = existing?.isSaving || false;
+      const resolvedVersion =
+        existing?.lastPersistedVersion !== undefined && initialVersion !== undefined
+          ? Math.max(existing.lastPersistedVersion, initialVersion)
+          : (initialVersion ?? existing?.lastPersistedVersion);
+
       const rec: FileSaveRecord = {
         fileId,
         currentContent: content,
         savedContent,
         isDirty,
-        saveStatus: isDirty ? "unsaved" : "saved",
-        isSaving: existing?.isSaving || false,
-        retryCount: 0,
+        saveStatus: isSaving
+          ? "saving"
+          : isDirty
+            ? existing?.conflictBlocked
+              ? "error"
+              : "unsaved"
+            : "saved",
+        isSaving,
+        retryCount: isDirty && existing?.isInitialized ? existing.retryCount : 0,
+        errorMessage: isDirty && existing?.isInitialized ? existing.errorMessage : undefined,
+        conflictBlocked: isDirty ? existing?.conflictBlocked : false,
         isInitialized: true,
         lastPersistedUpdatedAt: initialUpdatedAt ?? existing?.lastPersistedUpdatedAt,
-        lastPersistedVersion: initialVersion ?? existing?.lastPersistedVersion,
+        lastPersistedVersion: resolvedVersion,
       };
       recordsRef.current.set(fileId, rec);
       updateUIStatus(fileId, rec);
     },
     [updateUIStatus]
+  );
+
+  /**
+   * Synchronizes external persistence acknowledgments (e.g., Hocuspocus collaboration saves)
+   * into the REST autosave baseline so File.version and savedContent never drift apart.
+   */
+  const syncExternalSave = useCallback(
+    (
+      fileId: string,
+      savedContent: string,
+      updatedAt?: string,
+      version?: number,
+      options?: { markClean?: boolean }
+    ) => {
+      if (discardingFilesRef.current.has(fileId)) return;
+
+      const markClean = options?.markClean ?? false;
+      const existing = recordsRef.current.get(fileId);
+
+      if (markClean) {
+        const dTimer = debounceTimersRef.current.get(fileId);
+        if (dTimer) {
+          clearTimeout(dTimer);
+          debounceTimersRef.current.delete(fileId);
+        }
+        const rTimer = retryTimersRef.current.get(fileId);
+        if (rTimer) {
+          clearTimeout(rTimer);
+          retryTimersRef.current.delete(fileId);
+        }
+      }
+
+      const resolvedVersion =
+        existing?.lastPersistedVersion !== undefined && version !== undefined
+          ? Math.max(existing.lastPersistedVersion, version)
+          : (version ?? existing?.lastPersistedVersion);
+
+      if (!existing) {
+        if (!markClean) {
+          return;
+        }
+        const rec: FileSaveRecord = {
+          fileId,
+          currentContent: savedContent,
+          savedContent,
+          isDirty: false,
+          saveStatus: "saved",
+          isSaving: false,
+          retryCount: 0,
+          errorMessage: undefined,
+          conflictBlocked: false,
+          isInitialized: true,
+          lastPersistedUpdatedAt: updatedAt,
+          lastPersistedVersion: resolvedVersion,
+        };
+        recordsRef.current.set(fileId, rec);
+        updateUIStatus(fileId, rec);
+        return;
+      }
+
+      existing.savedContent = savedContent;
+      if (updatedAt !== undefined) {
+        existing.lastPersistedUpdatedAt = updatedAt;
+      }
+      if (resolvedVersion !== undefined) {
+        existing.lastPersistedVersion = resolvedVersion;
+      }
+      existing.conflictBlocked = false;
+
+      if (markClean && !existing.isSaving) {
+        existing.currentContent = savedContent;
+        existing.isDirty = false;
+        existing.saveStatus = "saved";
+        existing.retryCount = 0;
+        existing.errorMessage = undefined;
+        updateUIStatus(fileId, existing);
+        onDirtyChange?.(fileId, false);
+      }
+    },
+    [onDirtyChange, updateUIStatus]
   );
 
   /**
@@ -173,16 +269,46 @@ export function useAutosave(props?: UseAutosaveProps) {
       clearTimeout(timer);
       debounceTimersRef.current.delete(fileId);
     }
+    const retryTimer = retryTimersRef.current.get(fileId);
+    if (retryTimer) {
+      clearTimeout(retryTimer);
+      retryTimersRef.current.delete(fileId);
+    }
   }, []);
 
   /**
-   * Internal execution of file save to backend with sequencing and retry handling.
+   * Internal execution of file save to backend with sequencing, conflict reconciliation, and retry handling.
    */
   const executeSave = useCallback(
     async (fileId: string): Promise<boolean> => {
       // If file is currently in the discard lifecycle, prevent new regular saves
       if (discardingFilesRef.current.has(fileId)) {
         return false;
+      }
+
+      // Sequence tracking for concurrency & in-flight modification protection
+      const currentSeq = (saveSeqRef.current.get(fileId) || 0) + 1;
+      saveSeqRef.current.set(fileId, currentSeq);
+
+      // Serialize per-file writes so a subsequent PUT never reads a stale pre-ack File.version
+      const existingInFlight = activeSavePromiseRef.current.get(fileId);
+      if (existingInFlight) {
+        try {
+          await existingInFlight;
+        } catch {
+          // Handled via updated record state below
+        }
+        if (discardingFilesRef.current.has(fileId)) {
+          return false;
+        }
+        if (saveSeqRef.current.get(fileId) !== currentSeq) {
+          const latest = activeSavePromiseRef.current.get(fileId);
+          if (latest) {
+            const latestRes = await latest;
+            return latestRes.success;
+          }
+          return false;
+        }
       }
 
       const record = recordsRef.current.get(fileId);
@@ -193,16 +319,13 @@ export function useAutosave(props?: UseAutosaveProps) {
         record.isDirty = false;
         record.saveStatus = "saved";
         record.isSaving = false;
+        record.errorMessage = undefined;
+        record.conflictBlocked = false;
         updateUIStatus(fileId, record);
         onDirtyChange?.(fileId, false);
         return true;
       }
 
-      // Sequence tracking for concurrency & in-flight modification protection
-      const currentSeq = (saveSeqRef.current.get(fileId) || 0) + 1;
-      saveSeqRef.current.set(fileId, currentSeq);
-
-      const contentToSave = record.currentContent;
       const expectedVersion = record.lastPersistedVersion;
 
       // Fail closed if expectedVersion is not a valid server revision
@@ -217,155 +340,241 @@ export function useAutosave(props?: UseAutosaveProps) {
         return false;
       }
 
-      inFlightContentRef.current.set(fileId, contentToSave);
-      inFlightRequestRef.current.set(fileId, { content: contentToSave, expectedVersion });
       record.isSaving = true;
       record.saveStatus = "saving";
       record.errorMessage = undefined;
       updateUIStatus(fileId, record);
 
-      // Create and synchronously register the in-flight save promise before any await
-      let resolvePromise: (val: InFlightSaveResult) => void;
-      const savePromise = new Promise<InFlightSaveResult>((resolve) => {
-        resolvePromise = resolve;
-      });
-      activeSavePromiseRef.current.set(fileId, savePromise);
-
-      try {
-        const item = await fileApi.updateFileContent(fileId, contentToSave, expectedVersion);
-        const result: InFlightSaveResult = {
-          success: true,
+      const runPutAttempt = async (
+        contentToSave: string,
+        versionToSend: number
+      ): Promise<InFlightSaveResult> => {
+        inFlightContentRef.current.set(fileId, contentToSave);
+        inFlightRequestRef.current.set(fileId, {
           content: contentToSave,
-          updatedAt: item.updatedAt,
-          version: item.version,
-        };
-        resolvePromise!(result);
+          expectedVersion: versionToSend,
+        });
 
-        // Safe cleanup of activeSavePromiseRef: only delete if it still points to this promise
-        if (activeSavePromiseRef.current.get(fileId) === savePromise) {
-          activeSavePromiseRef.current.delete(fileId);
-          inFlightContentRef.current.delete(fileId);
-          inFlightRequestRef.current.delete(fileId);
+        let resolvePromise!: (val: InFlightSaveResult) => void;
+        const savePromise = new Promise<InFlightSaveResult>((resolve) => {
+          resolvePromise = resolve;
+        });
+        activeSavePromiseRef.current.set(fileId, savePromise);
+
+        try {
+          const item = await fileApi.updateFileContent(fileId, contentToSave, versionToSend);
+          const result: InFlightSaveResult = {
+            success: true,
+            content: contentToSave,
+            updatedAt: item.updatedAt,
+            version: item.version,
+          };
+          resolvePromise(result);
+          return result;
+        } catch (err: unknown) {
+          const result: InFlightSaveResult = {
+            success: false,
+            content: contentToSave,
+            error: err,
+          };
+          resolvePromise(result);
+          return result;
+        } finally {
+          if (activeSavePromiseRef.current.get(fileId) === savePromise) {
+            activeSavePromiseRef.current.delete(fileId);
+            inFlightContentRef.current.delete(fileId);
+            inFlightRequestRef.current.delete(fileId);
+          }
         }
+      };
 
-        // If file was marked for discard while save was resolving, suppress all normal updates and callbacks
+      const applySuccessfulPersist = (
+        persistedContent: string,
+        updatedAt?: string,
+        version?: number
+      ): boolean => {
         if (discardingFilesRef.current.has(fileId)) {
           return true;
         }
 
-        // Verify no newer save request has been initiated in the meantime
-        if (saveSeqRef.current.get(fileId) === currentSeq) {
-          record.savedContent = contentToSave;
-          record.lastPersistedUpdatedAt = item.updatedAt;
-          if (item.version !== undefined) {
-            record.lastPersistedVersion = item.version;
-          }
-          record.retryCount = 0;
-          record.isSaving = false;
+        if (version !== undefined) {
+          record.lastPersistedVersion = Math.max(record.lastPersistedVersion ?? 0, version);
+        }
+        if (updatedAt !== undefined) {
+          record.lastPersistedUpdatedAt = updatedAt;
+        }
+        record.savedContent = persistedContent;
+        record.conflictBlocked = false;
 
-          // Check if user continued typing while save was resolving
-          if (record.currentContent === contentToSave) {
-            record.isDirty = false;
-            record.saveStatus = "saved";
-          } else {
-            record.isDirty = true;
-            record.saveStatus = "unsaved";
-            // Only schedule debounced save if not pending removal
-            if (!pendingRemovalRef.current.has(fileId)) {
-              const timer = setTimeout(() => {
-                void executeSave(fileId);
-              }, DEBOUNCE_DELAY_MS);
-              debounceTimersRef.current.set(fileId, timer);
+        if (saveSeqRef.current.get(fileId) !== currentSeq) {
+          return true;
+        }
+
+        record.retryCount = 0;
+        record.isSaving = false;
+        record.errorMessage = undefined;
+
+        if (record.currentContent === persistedContent) {
+          record.isDirty = false;
+          record.saveStatus = "saved";
+        } else {
+          record.isDirty = true;
+          record.saveStatus = "unsaved";
+          if (!pendingRemovalRef.current.has(fileId)) {
+            const existingTimer = debounceTimersRef.current.get(fileId);
+            if (existingTimer) clearTimeout(existingTimer);
+            const timer = setTimeout(() => {
+              void executeSave(fileId);
+            }, DEBOUNCE_DELAY_MS);
+            debounceTimersRef.current.set(fileId, timer);
+          }
+        }
+
+        updateUIStatus(fileId, record);
+        onFileSaved?.(fileId, persistedContent, updatedAt, version);
+        onDirtyChange?.(fileId, record.isDirty);
+
+        if (pendingRemovalRef.current.has(fileId)) {
+          recordsRef.current.delete(fileId);
+          saveSeqRef.current.delete(fileId);
+          pendingRemovalRef.current.delete(fileId);
+          setFileStatuses((prev) => {
+            const next = { ...prev };
+            delete next[fileId];
+            return next;
+          });
+        }
+        return true;
+      };
+
+      const contentToSave = record.currentContent;
+      const firstResult = await runPutAttempt(contentToSave, expectedVersion);
+
+      if (firstResult.success) {
+        return applySuccessfulPersist(
+          firstResult.content,
+          firstResult.updatedAt,
+          firstResult.version
+        );
+      }
+
+      if (discardingFilesRef.current.has(fileId)) {
+        return false;
+      }
+
+      if (saveSeqRef.current.get(fileId) !== currentSeq) {
+        return false;
+      }
+
+      if (pendingRemovalRef.current.has(fileId)) {
+        record.isSaving = false;
+        recordsRef.current.delete(fileId);
+        saveSeqRef.current.delete(fileId);
+        pendingRemovalRef.current.delete(fileId);
+        setFileStatuses((prev) => {
+          const next = { ...prev };
+          delete next[fileId];
+          return next;
+        });
+        return false;
+      }
+
+      const err = firstResult.error;
+      const is409Conflict = err instanceof ApiError && err.statusCode === 409;
+
+      if (is409Conflict) {
+        // Fetch authoritative remote state once to classify benign version drift vs external content edit
+        try {
+          const remote = await fileApi.getFile(fileId);
+          if (discardingFilesRef.current.has(fileId) || pendingRemovalRef.current.has(fileId)) {
+            return false;
+          }
+
+          const remoteContent = remote.content ?? "";
+          const resolution = classifyHttpConflict({
+            currentContent: record.currentContent,
+            attemptedContent: contentToSave,
+            savedBaselineContent: record.savedContent,
+            remoteContent,
+          });
+
+          // Case 1: PostgreSQL already contains our exact current buffer (e.g. Hocuspocus saved it)
+          if (resolution === "already_persisted") {
+            return applySuccessfulPersist(remoteContent, remote.updatedAt, remote.version);
+          }
+
+          // Case 2: No external content divergence (DB still matches our baseline or intermediate
+          // save attempt) — safe to refresh version once and save our latest buffer at most once.
+          if (resolution === "safe_version_drift" && typeof remote.version === "number") {
+            record.savedContent = remoteContent;
+            record.lastPersistedVersion = remote.version;
+            record.lastPersistedUpdatedAt = remote.updatedAt ?? record.lastPersistedUpdatedAt;
+
+            if (saveSeqRef.current.get(fileId) !== currentSeq) {
+              return false;
+            }
+
+            const reconciledContent = record.currentContent;
+            const reconciledResult = await runPutAttempt(reconciledContent, remote.version);
+            if (reconciledResult.success) {
+              return applySuccessfulPersist(
+                reconciledResult.content,
+                reconciledResult.updatedAt,
+                reconciledResult.version
+              );
+            }
+
+            if (discardingFilesRef.current.has(fileId)) {
+              return false;
             }
           }
 
+          // Case 3: Genuine concurrent content edit by another user/session — preserve local edits cleanly
+          record.isSaving = false;
+          record.saveStatus = "error";
+          record.isDirty = true;
+          record.conflictBlocked = true;
+          record.errorMessage = `Conflict: File has been modified by another user or session (server version ${remote.version}). Reload to inspect latest changes.`;
           updateUIStatus(fileId, record);
-          onFileSaved?.(fileId, contentToSave, item.updatedAt, item.version);
-          onDirtyChange?.(fileId, record.isDirty);
-
-          // Clean up record if marked for removal once save has finished
-          if (pendingRemovalRef.current.has(fileId)) {
-            recordsRef.current.delete(fileId);
-            saveSeqRef.current.delete(fileId);
-            pendingRemovalRef.current.delete(fileId);
-            setFileStatuses((prev) => {
-              const next = { ...prev };
-              delete next[fileId];
-              return next;
-            });
-          }
-        }
-        return true;
-      } catch (err: unknown) {
-        const result: InFlightSaveResult = {
-          success: false,
-          content: contentToSave,
-          error: err,
-        };
-        resolvePromise!(result);
-
-        if (activeSavePromiseRef.current.get(fileId) === savePromise) {
-          activeSavePromiseRef.current.delete(fileId);
-          inFlightContentRef.current.delete(fileId);
-          inFlightRequestRef.current.delete(fileId);
-        }
-
-        if (discardingFilesRef.current.has(fileId)) {
+          onDirtyChange?.(fileId, true);
+          return false;
+        } catch {
+          record.isSaving = false;
+          record.saveStatus = "error";
+          record.isDirty = true;
+          record.conflictBlocked = true;
+          record.errorMessage =
+            "Conflict: File has been modified by another user or session. Reload to inspect latest changes.";
+          updateUIStatus(fileId, record);
+          onDirtyChange?.(fileId, true);
           return false;
         }
-
-        if (saveSeqRef.current.get(fileId) === currentSeq) {
-          record.isSaving = false;
-
-          // If marked for removal, do not retry; evict immediately
-          if (pendingRemovalRef.current.has(fileId)) {
-            recordsRef.current.delete(fileId);
-            saveSeqRef.current.delete(fileId);
-            pendingRemovalRef.current.delete(fileId);
-            setFileStatuses((prev) => {
-              const next = { ...prev };
-              delete next[fileId];
-              return next;
-            });
-            return false;
-          }
-
-          // If 409 conflict, do not retry automatically with stale version
-          const is409Conflict = err instanceof ApiError && err.statusCode === 409;
-          if (is409Conflict) {
-            record.saveStatus = "error";
-            record.isDirty = true;
-            record.errorMessage =
-              "Conflict: File has been modified by another user or session. Reload to inspect latest changes.";
-            updateUIStatus(fileId, record);
-            onDirtyChange?.(fileId, true);
-            return false;
-          }
-
-          const errorMsg = err instanceof Error ? err.message : "Save failed";
-          record.errorMessage = errorMsg;
-
-          // Check if we can retry with exponential backoff
-          if (record.retryCount < MAX_RETRIES) {
-            const delay = RETRY_DELAYS_MS[record.retryCount] || 4000;
-            record.retryCount++;
-            record.saveStatus = "saving"; // Display saving during backoff
-            updateUIStatus(fileId, record);
-
-            const timer = setTimeout(() => {
-              void executeSave(fileId);
-            }, delay);
-            retryTimersRef.current.set(fileId, timer);
-          } else {
-            // Retry limit exhausted
-            record.saveStatus = "error";
-            record.isDirty = true;
-            updateUIStatus(fileId, record);
-            onDirtyChange?.(fileId, true);
-          }
-        }
-        return false;
       }
+
+      record.isSaving = false;
+      const errorMsg = err instanceof Error ? err.message : "Save failed";
+      record.errorMessage = errorMsg;
+
+      // Check if we can retry transient non-409 failures with exponential backoff
+      if (record.retryCount < MAX_RETRIES) {
+        const delay = RETRY_DELAYS_MS[record.retryCount] || 4000;
+        record.retryCount++;
+        record.saveStatus = "saving"; // Display saving during backoff
+        updateUIStatus(fileId, record);
+
+        const timer = setTimeout(() => {
+          void executeSave(fileId);
+        }, delay);
+        retryTimersRef.current.set(fileId, timer);
+      } else {
+        // Retry limit exhausted
+        record.saveStatus = "error";
+        record.isDirty = true;
+        updateUIStatus(fileId, record);
+        onDirtyChange?.(fileId, true);
+      }
+
+      return false;
     },
     [onDirtyChange, onFileSaved, updateUIStatus]
   );
@@ -377,7 +586,7 @@ export function useAutosave(props?: UseAutosaveProps) {
     (fileId: string) => {
       if (discardingFilesRef.current.has(fileId)) return;
       const rec = recordsRef.current.get(fileId);
-      if (!rec || !rec.isInitialized || !rec.isDirty) return;
+      if (!rec || !rec.isInitialized || !rec.isDirty || rec.conflictBlocked) return;
 
       const existing = debounceTimersRef.current.get(fileId);
       if (existing) {
@@ -385,12 +594,19 @@ export function useAutosave(props?: UseAutosaveProps) {
         debounceTimersRef.current.delete(fileId);
       }
 
+      rec.retryCount = 0;
+      rec.errorMessage = undefined;
+      if (rec.saveStatus === "error") {
+        rec.saveStatus = "unsaved";
+        updateUIStatus(fileId, rec);
+      }
+
       const timer = setTimeout(() => {
         void executeSave(fileId);
       }, DEBOUNCE_DELAY_MS);
       debounceTimersRef.current.set(fileId, timer);
     },
-    [executeSave]
+    [executeSave, updateUIStatus]
   );
 
   /**
@@ -547,10 +763,16 @@ export function useAutosave(props?: UseAutosaveProps) {
       record.currentContent = newContent;
       const isDirty = newContent !== record.savedContent;
       record.isDirty = isDirty;
-      if (isDirty) {
-        record.saveStatus = record.saveStatus === "saving" ? "saving" : "unsaved";
-      } else {
+      if (!isDirty) {
+        record.conflictBlocked = false;
+        record.errorMessage = undefined;
         record.saveStatus = "saved";
+      } else if (record.saveStatus === "saving") {
+        record.saveStatus = "saving";
+      } else if (record.conflictBlocked) {
+        record.saveStatus = "error";
+      } else {
+        record.saveStatus = "unsaved";
       }
 
       onDirtyChange?.(fileId, record.isDirty);
@@ -571,8 +793,8 @@ export function useAutosave(props?: UseAutosaveProps) {
         record.retryCount = 0;
       }
 
-      // Set new 1000ms debounce timer if dirty
-      if (record.isDirty) {
+      // Set new 1000ms debounce timer if dirty and not blocked by external conflict
+      if (record.isDirty && !record.conflictBlocked) {
         const timer = setTimeout(() => {
           void executeSave(fileId);
         }, DEBOUNCE_DELAY_MS);
@@ -672,6 +894,17 @@ export function useAutosave(props?: UseAutosaveProps) {
     return recordsRef.current.get(fileId)?.isInitialized ?? false;
   }, []);
 
+  const isFileDirty = useCallback(
+    (fileId: string | null): boolean => {
+      if (!fileId) return false;
+      const rec = recordsRef.current.get(fileId);
+      if (rec?.isDirty) return true;
+      const ui = fileStatuses[fileId];
+      return ui?.isDirty || false;
+    },
+    [fileStatuses]
+  );
+
   // Teardown all active timers on unmount
   useEffect(() => {
     const dTimers = debounceTimersRef.current;
@@ -688,6 +921,7 @@ export function useAutosave(props?: UseAutosaveProps) {
 
   return {
     initFile,
+    syncExternalSave,
     removeFile,
     cancelSave,
     pauseAutosave,
@@ -699,5 +933,6 @@ export function useAutosave(props?: UseAutosaveProps) {
     flushAllPending,
     getFileSaveState,
     isFileInitialized,
+    isDirty: isFileDirty,
   };
 }

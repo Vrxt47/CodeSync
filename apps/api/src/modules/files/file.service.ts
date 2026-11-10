@@ -205,6 +205,8 @@ export class FileService {
         },
         data: {
           content: input.content,
+          // Reset binary CRDT snapshot so next collaborative session re-seeds from authoritative plain text
+          yjsState: null,
           version: { increment: 1 },
           updatedAt: new Date(),
         },
@@ -213,7 +215,7 @@ export class FileService {
       if (result.count === 0) {
         const current = await prisma.file.findUnique({
           where: { id: fileId },
-          select: { id: true },
+          select: { id: true, version: true },
         });
 
         if (!current) {
@@ -223,7 +225,12 @@ export class FileService {
         throw new AppError(
           "File has been modified by another user or session",
           409,
-          "CONCURRENT_MODIFICATION"
+          "CONCURRENT_MODIFICATION",
+          true,
+          {
+            expectedVersion: input.expectedVersion,
+            currentVersion: current.version,
+          }
         );
       }
 

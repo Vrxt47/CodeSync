@@ -101,6 +101,9 @@ importers:
 
   apps/collaboration:
     dependencies:
+      "@codesync/database":
+        specifier: workspace:*
+        version: link:../../packages/database
       "@codesync/shared":
         specifier: workspace:*
         version: link:../../packages/shared
@@ -110,6 +113,9 @@ importers:
       dotenv:
         specifier: ^16.4.7
         version: 16.6.1
+      jsonwebtoken:
+        specifier: ^9.0.2
+        version: 9.0.3
       yjs:
         specifier: ^13.6.23
         version: 13.6.33
@@ -117,6 +123,9 @@ importers:
       "@codesync/config-typescript":
         specifier: workspace:*
         version: link:../../packages/config/typescript
+      "@types/jsonwebtoken":
+        specifier: ^9.0.8
+        version: 9.0.10
       "@types/node":
         specifier: ^22.10.7
         version: 22.20.5
@@ -132,6 +141,9 @@ importers:
       "@codesync/shared":
         specifier: workspace:*
         version: link:../../packages/shared
+      "@hocuspocus/provider":
+        specifier: 2.15.3
+        version: 2.15.3(y-protocols@1.0.7(yjs@13.6.33))(yjs@13.6.33)
       "@monaco-editor/react":
         specifier: ^4.7.0
         version: 4.7.0(monaco-editor@0.57.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -162,6 +174,12 @@ importers:
       tailwind-merge:
         specifier: ^3.0.1
         version: 3.7.0
+      y-monaco:
+        specifier: ^0.1.6
+        version: 0.1.6(monaco-editor@0.57.0)(yjs@13.6.33)
+      yjs:
+        specifier: ^13.6.33
+        version: 13.6.33
     devDependencies:
       "@codesync/config-typescript":
         specifier: workspace:*
@@ -563,6 +581,15 @@ packages:
         integrity: sha512-Rzh1HF0a2o/tf90A3w2XNdXd9Ym3aQzMDfD3lAUONCX9B9QOdqdyiORrj6M25QEaJrEIbXFy8LtAFcL0wRdWzA==,
       }
 
+  "@hocuspocus/provider@2.15.3":
+    resolution:
+      {
+        integrity: sha512-oadN05m+KL4ylNKVo5YspNG4MXkT2Y+FUFzrgigpQeTjQibkPUwCNmUnkUxMgrGRgxb+O0lJCfirFIJMxedctA==,
+      }
+    peerDependencies:
+      y-protocols: ^1.0.6
+      yjs: ^13.6.8
+
   "@hocuspocus/server@2.15.3":
     resolution:
       {
@@ -879,6 +906,12 @@ packages:
     resolution:
       {
         integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==,
+      }
+
+  "@lifeomic/attempt@3.1.0":
+    resolution:
+      {
+        integrity: sha512-QZqem4QuAnAyzfz+Gj5/+SLxqwCAw2qmt7732ZXodr6VDWGeYLG6w1i/vYLa55JQM9wRuBKLmXmiZ2P0LtE5rw==,
       }
 
   "@monaco-editor/loader@1.7.0":
@@ -3197,6 +3230,16 @@ packages:
       utf-8-validate:
         optional: true
 
+  y-monaco@0.1.6:
+    resolution:
+      {
+        integrity: sha512-sYRywMmcylt+Nupl+11AvizD2am06ST8lkVbUXuaEmrtV6Tf+TD4rsEm6u9YGGowYue+Vfg1IJ97SUP2J+PVXg==,
+      }
+    engines: { node: ">=12.0.0", npm: ">=6.0.0" }
+    peerDependencies:
+      monaco-editor: ">=0.20.0"
+      yjs: ^13.3.1
+
   y-protocols@1.0.7:
     resolution:
       {
@@ -3383,6 +3426,18 @@ snapshots:
     dependencies:
       lib0: 0.2.119
 
+  "@hocuspocus/provider@2.15.3(y-protocols@1.0.7(yjs@13.6.33))(yjs@13.6.33)":
+    dependencies:
+      "@hocuspocus/common": 2.15.3
+      "@lifeomic/attempt": 3.1.0
+      lib0: 0.2.119
+      ws: 8.22.0
+      y-protocols: 1.0.7(yjs@13.6.33)
+      yjs: 13.6.33
+    transitivePeerDependencies:
+      - bufferutil
+      - utf-8-validate
+
   "@hocuspocus/server@2.15.3(y-protocols@1.0.7(yjs@13.6.33))(yjs@13.6.33)":
     dependencies:
       "@hocuspocus/common": 2.15.3
@@ -3535,6 +3590,8 @@ snapshots:
     dependencies:
       "@jridgewell/resolve-uri": 3.1.2
       "@jridgewell/sourcemap-codec": 1.6.0
+
+  "@lifeomic/attempt@3.1.0": {}
 
   "@monaco-editor/loader@1.7.0":
     dependencies:
@@ -4880,6 +4937,12 @@ snapshots:
       strip-ansi: 6.0.1
 
   ws@8.22.0: {}
+
+  y-monaco@0.1.6(monaco-editor@0.57.0)(yjs@13.6.33):
+    dependencies:
+      lib0: 0.2.119
+      monaco-editor: 0.57.0
+      yjs: 13.6.33
 
   y-protocols@1.0.7(yjs@13.6.33):
     dependencies:

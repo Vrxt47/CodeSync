@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/providers/auth-provider";
+import type { CollabConnectionStatus, Collaborator } from "@/hooks/useCollab";
+import { CollaboratorPresence } from "./CollaboratorPresence";
 
 interface IDEHeaderProps {
   workspaceName?: string;
@@ -22,6 +24,9 @@ interface IDEHeaderProps {
   onToggleSidebar: () => void;
   isBottomPanelOpen: boolean;
   onToggleBottomPanel: () => void;
+  collabStatus?: CollabConnectionStatus;
+  isSynced?: boolean;
+  collaborators?: Collaborator[];
 }
 
 export const IDEHeader: React.FC<IDEHeaderProps> = ({
@@ -30,6 +35,9 @@ export const IDEHeader: React.FC<IDEHeaderProps> = ({
   onToggleSidebar,
   isBottomPanelOpen,
   onToggleBottomPanel,
+  collabStatus = "disconnected",
+  isSynced = false,
+  collaborators = [],
 }) => {
   const { user, isAuthenticated } = useAuth();
   const userInitials = user?.name
@@ -40,6 +48,39 @@ export const IDEHeader: React.FC<IDEHeaderProps> = ({
         .toUpperCase()
         .slice(0, 2)
     : "CS";
+
+  // Derive collaboration status badge visual styles and copy
+  let statusColor = "bg-[#858585]";
+  let statusText = "Offline";
+  let statusFullText = "Not connected";
+  let statusTitle = "Collaboration Server: Disconnected (Local editing mode)";
+  let dotAnimation = "";
+
+  if (collabStatus === "connected") {
+    if (isSynced) {
+      statusColor = "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]";
+      statusText = "Live";
+      statusFullText = "Live (Synced)";
+      statusTitle = "Collaboration Server: Connected & Synced (Real-time CRDT active)";
+    } else {
+      statusColor = "bg-sky-400";
+      statusText = "Syncing";
+      statusFullText = "Syncing...";
+      statusTitle = "Collaboration Server: Connected, synchronizing document changes...";
+      dotAnimation = "animate-pulse";
+    }
+  } else if (collabStatus === "connecting") {
+    statusColor = "bg-amber-400";
+    statusText = "Connecting";
+    statusFullText = "Connecting...";
+    statusTitle = "Collaboration Server: Connecting to collaborative session...";
+    dotAnimation = "animate-pulse";
+  } else if (collabStatus === "error") {
+    statusColor = "bg-rose-500";
+    statusText = "Error";
+    statusFullText = "Connection Error";
+    statusTitle = "Collaboration Server: Connection error (Falling back to local autosave)";
+  }
 
   return (
     <header className="h-11 bg-[#181818] border-b border-[#303030] flex items-center justify-between px-3 text-[#CCCCCC] select-none z-30 shrink-0">
@@ -92,16 +133,19 @@ export const IDEHeader: React.FC<IDEHeaderProps> = ({
         </div>
       </div>
 
-      {/* Right section: Collaboration status, Invite, Layout controls, Profile */}
+      {/* Right section: Collaboration status, Collaborator presence, Invite, Layout controls, Profile */}
       <div className="flex items-center gap-2 shrink-0">
-        {/* Collaboration Status Pill (Neutral / Offline placeholder) */}
+        {/* Active Remote Collaborators Presence Avatars */}
+        <CollaboratorPresence collaborators={collaborators} />
+
+        {/* Collaboration Status Pill */}
         <div
-          title="Collaboration Server: Standby (Yjs / Hocuspocus offline until room joined)"
-          className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[#252526] border border-[#303030] text-[11px] text-[#858585]"
+          title={statusTitle}
+          className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#252526] border border-[#303030] text-[11px] text-[#CCCCCC] transition-colors"
         >
-          <CircleDot className="h-2.5 w-2.5 text-[#858585]" />
-          <span className="hidden md:inline">Not connected</span>
-          <span className="md:hidden">Offline</span>
+          <span className={`h-2 w-2 rounded-full ${statusColor} ${dotAnimation} shrink-0`} />
+          <span className="hidden md:inline font-medium">{statusFullText}</span>
+          <span className="md:hidden font-medium">{statusText}</span>
         </div>
 
         {/* Invite Button (Visual placeholder) */}

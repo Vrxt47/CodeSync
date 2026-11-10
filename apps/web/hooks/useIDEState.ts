@@ -97,6 +97,16 @@ export function useIDEState(options?: UseIDEStateOptions) {
   const isMountedRef = useRef(true);
   const requestSeqRef = useRef(0);
   const isTabsRestoredRef = useRef(false);
+
+  // Synchronously maintained state refs to eliminate React render-lag race conditions
+  const openTabsRef = useRef<EditorTab[]>(openTabs);
+  openTabsRef.current = openTabs;
+  const dirtyTabsRef = useRef<Set<string>>(new Set());
+  const tabDirtyCheckerRef = useRef<((tabId: string) => boolean) | null>(null);
+
+  const registerTabDirtyChecker = useCallback((checker: ((tabId: string) => boolean) | null) => {
+    tabDirtyCheckerRef.current = checker;
+  }, []);
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -222,40 +232,123 @@ export function useIDEState(options?: UseIDEStateOptions) {
   const activeTab = openTabs.find((t) => t.id === activeTabId) || null;
 
   // Tab content & dirty status synchronization
-  const updateTabContent = useCallback((tabId: string, content: string, isDirty: boolean) => {
-    setOpenTabs((prev) =>
-      prev.map((tab) => (tab.id === tabId ? { ...tab, content, isDirty } : tab))
-    );
-  }, []);
+  const updateTabContent = useCallback(
+    (tabId: string, content: string, isDirty: boolean, preserveExplicitDirtyFlag = false) => {
+      const targetTab = openTabsRef.current.find((t) => t.id === tabId);
+      const syncDirty = preserveExplicitDirtyFlag
+        ? isDirty
+        : isDirty || (targetTab?.savedContent !== undefined && content !== targetTab.savedContent);
+
+      if (syncDirty) {
+        dirtyTabsRef.current.add(tabId);
+      } else {
+        dirtyTabsRef.current.delete(tabId);
+      }
+
+      openTabsRef.current = openTabsRef.current.map((tab) =>
+        tab.id === tabId ? { ...tab, content, isDirty: syncDirty } : tab
+      );
+
+      setOpenTabs((prev) => {
+        const next = prev.map((tab) => {
+          if (tab.id !== tabId) return tab;
+          const effectiveDirty = preserveExplicitDirtyFlag
+            ? isDirty
+            : isDirty || (tab.savedContent !== undefined && content !== tab.savedContent);
+          if (effectiveDirty) {
+            dirtyTabsRef.current.add(tabId);
+          } else {
+            dirtyTabsRef.current.delete(tabId);
+          }
+          return { ...tab, content, isDirty: effectiveDirty };
+        });
+        openTabsRef.current = next;
+        return next;
+      });
+    },
+    []
+  );
 
   const markTabDirty = useCallback((tabId: string, isDirty: boolean) => {
-    setOpenTabs((prev) => prev.map((tab) => (tab.id === tabId ? { ...tab, isDirty } : tab)));
+    if (isDirty) {
+      dirtyTabsRef.current.add(tabId);
+    } else {
+      dirtyTabsRef.current.delete(tabId);
+    }
+    openTabsRef.current = openTabsRef.current.map((tab) =>
+      tab.id === tabId ? { ...tab, isDirty } : tab
+    );
+    setOpenTabs((prev) => {
+      const next = prev.map((tab) => (tab.id === tabId ? { ...tab, isDirty } : tab));
+      openTabsRef.current = next;
+      return next;
+    });
   }, []);
 
   const markTabSaved = useCallback(
-    (tabId: string, savedContent: string, updatedAt?: string, version?: number) => {
-      setOpenTabs((prev) =>
-        prev.map((tab) =>
-          tab.id === tabId
-            ? {
-                ...tab,
-                savedContent,
-                isLoaded: true,
-                isDirty: tab.content !== savedContent,
-                updatedAt: updatedAt ?? tab.updatedAt,
-                version: version ?? tab.version,
-              }
-            : tab
-        )
+    (
+      tabId: string,
+      savedContent: string,
+      updatedAt?: string,
+      version?: number,
+      forceClean = false
+    ) => {
+      const targetTab = openTabsRef.current.find((t) => t.id === tabId);
+      const syncStillDirty = forceClean
+        ? false
+        : targetTab
+          ? targetTab.content !== savedContent
+          : false;
+      if (syncStillDirty) {
+        dirtyTabsRef.current.add(tabId);
+      } else {
+        dirtyTabsRef.current.delete(tabId);
+      }
+      openTabsRef.current = openTabsRef.current.map((tab) =>
+        tab.id === tabId
+          ? {
+              ...tab,
+              content: forceClean ? savedContent : tab.content,
+              savedContent,
+              isLoaded: true,
+              isDirty: forceClean ? false : tab.content !== savedContent,
+              updatedAt: updatedAt ?? tab.updatedAt,
+              version: version ?? tab.version,
+            }
+          : tab
       );
+
+      setOpenTabs((prev) => {
+        const next = prev.map((tab) => {
+          if (tab.id !== tabId) return tab;
+          const isStillDirty = forceClean ? false : tab.content !== savedContent;
+          if (isStillDirty) {
+            dirtyTabsRef.current.add(tabId);
+          } else {
+            dirtyTabsRef.current.delete(tabId);
+          }
+          return {
+            ...tab,
+            content: forceClean ? savedContent : tab.content,
+            savedContent,
+            isLoaded: true,
+            isDirty: isStillDirty,
+            updatedAt: updatedAt ?? tab.updatedAt,
+            version: version ?? tab.version,
+          };
+        });
+        openTabsRef.current = next;
+        return next;
+      });
     },
     []
   );
 
   const markTabLoaded = useCallback(
     (tabId: string, content: string, updatedAt?: string, version?: number) => {
-      setOpenTabs((prev) =>
-        prev.map((tab) =>
+      dirtyTabsRef.current.delete(tabId);
+      setOpenTabs((prev) => {
+        const next = prev.map((tab) =>
           tab.id === tabId
             ? {
                 ...tab,
@@ -267,8 +360,10 @@ export function useIDEState(options?: UseIDEStateOptions) {
                 version: version ?? tab.version,
               }
             : tab
-        )
-      );
+        );
+        openTabsRef.current = next;
+        return next;
+      });
     },
     []
   );
@@ -296,7 +391,9 @@ export function useIDEState(options?: UseIDEStateOptions) {
         updatedAt: file.updatedAt,
         version: file.version,
       };
-      return [...prev, newTab];
+      const next = [...prev, newTab];
+      openTabsRef.current = next;
+      return next;
     });
 
     setActiveTabId(file.id);
@@ -316,11 +413,13 @@ export function useIDEState(options?: UseIDEStateOptions) {
   );
 
   const doCloseTab = useCallback((tabId: string) => {
+    dirtyTabsRef.current.delete(tabId);
     setOpenTabs((prev) => {
       const index = prev.findIndex((t) => t.id === tabId);
       if (index === -1) return prev;
 
       const nextTabs = prev.filter((t) => t.id !== tabId);
+      openTabsRef.current = nextTabs;
 
       // If closed tab was active, determine next active tab
       setActiveTabId((currentActiveId) => {
@@ -349,8 +448,16 @@ export function useIDEState(options?: UseIDEStateOptions) {
         e.stopPropagation();
       }
 
-      const tabToClose = openTabs.find((t) => t.id === tabId);
-      if (tabToClose?.isDirty) {
+      // Check synchronous state first to prevent React render-lag race condition
+      const isDirtyFromChecker = tabDirtyCheckerRef.current
+        ? tabDirtyCheckerRef.current(tabId)
+        : false;
+      const isDirtyFromRef = dirtyTabsRef.current.has(tabId);
+      const tabFromRef = openTabsRef.current.find((t) => t.id === tabId);
+      const tabToClose = tabFromRef || openTabs.find((t) => t.id === tabId);
+      const isDirty = isDirtyFromChecker || isDirtyFromRef || tabToClose?.isDirty || false;
+
+      if (isDirty && tabToClose) {
         // Activate the tab being closed so the editor and dialog reflect it
         setActiveTabId(tabId);
         setSelectedFileId(tabId);
@@ -387,6 +494,10 @@ export function useIDEState(options?: UseIDEStateOptions) {
   }, []);
 
   // Bottom Panel
+  const openBottomPanel = useCallback(() => {
+    setIsBottomPanelOpen(true);
+  }, []);
+
   const setBottomPanelTab = useCallback((tab: BottomPanelTab) => {
     setBottomPanelTabState(tab);
     setIsBottomPanelOpen(true);
@@ -571,6 +682,7 @@ export function useIDEState(options?: UseIDEStateOptions) {
     markTabSaved,
     markTabLoaded,
     markTabDirty,
+    registerTabDirtyChecker,
     cursorPosition,
     setCursorPosition,
     activeLanguage,
@@ -581,6 +693,7 @@ export function useIDEState(options?: UseIDEStateOptions) {
     bottomPanelTab,
     setBottomPanelTab,
     isBottomPanelOpen,
+    openBottomPanel,
     toggleBottomPanel,
     isBottomPanelMaximized,
     toggleBottomPanelMaximized,
